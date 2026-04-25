@@ -1,0 +1,6 @@
+pyrit>=0.13.0
+python-dotenv>=1.0.0
+litellm>=1.40.0
+duckdb>=1.0.0
+pandas>=2.0.0
+seaborn>=0.13.0
