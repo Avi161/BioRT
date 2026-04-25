@@ -217,16 +217,17 @@ async def run_single_cell(
             )
             elapsed = time.monotonic() - t0
 
+            outcome = str(result.outcome)
             logger.info(
-                "  [OK] %s | %s | %s — %.1fs",
-                model_display_name, method_name, category, elapsed,
+                "  [OK] %s | %s | %s — %s (%.1fs)",
+                model_display_name, method_name, category, outcome, elapsed,
             )
             return CellResult(
                 model=model_display_name,
                 method=method_name,
                 category=category,
                 prompt=prompt,
-                status=str(result.status),
+                status=outcome,
                 conversation_id=str(result.conversation_id),
                 elapsed_seconds=elapsed,
             )
