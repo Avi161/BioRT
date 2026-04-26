@@ -98,3 +98,82 @@ select {
   border: 1px solid #d1d5db;
   background: #fff;
 }
+
+.upload-label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.trace-error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.trace-records {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.trace-record {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: #f9fafb;
+}
+
+.trace-record-header {
+  margin-bottom: 0.5rem;
+}
+
+.trace-prompt-objective {
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.trace-prompt-objective h4 {
+  margin: 0 0 0.25rem 0;
+}
+
+.trace-prompt-objective p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.trace-turn-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.trace-turn {
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.trace-turn h4 {
+  margin: 0 0 0.25rem 0;
+  font-size: 0.9rem;
+}
+
+.trace-turn p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.trace-turn-attacker {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+}
+
+.trace-turn-defender {
+  border: 1px solid #bbf7d0;
+  background: #ecfdf5;
+}

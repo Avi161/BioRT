@@ -40,6 +40,10 @@ class ModelConfig:
     # When set, matrix_runner uses this as the victim completion cap instead of
     # its global default (512). Unset rows follow HarmBench's standard cap.
     victim_max_tokens: int | None = None
+    # Static cap stored on the registry row, used when callers don't pass
+    # ``max_tokens`` to ``build_target``. Read by the judge pipeline, which
+    # overrides it per-call via ``dataclasses.replace``.
+    max_completion_tokens: int | None = None
     # Role hints — informational only, used by the report writer to label rows.
     # "frontier_closed" | "frontier_supplementary" | "open_weight_control"
     role: str = "frontier_closed"
@@ -160,10 +164,13 @@ def build_target(
         config: Model registry row.
         max_tokens: Optional response token cap. matrix_runner.py sets this
             on victim targets so output stays bounded; adversary targets are
-            intentionally built without a cap. For most providers this is sent
-            as PyRIT/OpenAI ``max_tokens``. Rows with ``use_max_completion_tokens``
-            (currently GPT-5.4) send ``max_completion_tokens`` instead, because
-            OpenAI rejects ``max_tokens`` for those models.
+            intentionally built without a cap. When ``None``, falls back to
+            ``config.max_completion_tokens`` (used by the judge pipeline,
+            which sets it via ``dataclasses.replace``). For most providers
+            the cap is sent as PyRIT/OpenAI ``max_tokens``. Rows with
+            ``use_max_completion_tokens`` (currently GPT-5.4) send
+            ``max_completion_tokens`` instead, because OpenAI rejects
+            ``max_tokens`` for those models.
 
     Raises:
         EnvironmentError: If the required API key is missing.
@@ -183,10 +190,11 @@ def build_target(
         kwargs["temperature"] = config.temperature
     if config.extra_body is not None:
         kwargs["extra_body_parameters"] = config.extra_body
-    if max_tokens is not None:
+    cap = max_tokens if max_tokens is not None else config.max_completion_tokens
+    if cap is not None:
         if config.use_max_completion_tokens:
-            kwargs["max_completion_tokens"] = max_tokens
+            kwargs["max_completion_tokens"] = cap
         else:
-            kwargs["max_tokens"] = max_tokens
+            kwargs["max_tokens"] = cap
 
     return OpenAIChatTarget(**kwargs)

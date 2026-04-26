@@ -10,11 +10,11 @@ Orchestration layer for testing bio-misuse safeguards across frontier AI models.
 
 ## Test Matrix
 
-| Dimension | Values |
-|-----------|--------|
-| **Models** | GPT-5.4, Claude Sonnet 4.6, Gemini 3 Pro, DeepSeek V4 Flash, Kimi 2.5 |
-| **Attack Methods** | Direct Request, PAIR, Crescendo, Base64 Encoding |
-| **Categories** | synthesis_evasion, lab_automation_uplift, dual_use_protocol, acquisition_kyc, virology |
+| Dimension          | Values                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| **Models**         | GPT-5.4, Claude Sonnet 4.6, Gemini 3 Pro, DeepSeek V4 Flash, Kimi 2.5                  |
+| **Attack Methods** | Direct Request, PAIR, Crescendo, Base64 Encoding                                       |
+| **Categories**     | synthesis_evasion, lab_automation_uplift, dual_use_protocol, acquisition_kyc, virology |
 
 ## Quick Start (Backend)
 
