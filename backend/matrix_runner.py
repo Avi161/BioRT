@@ -44,8 +44,7 @@ python matrix_runner.py --max-prompts 10
 python matrix_runner.py
 
 # 5. COMBINED — one model + one method + N prompts (typical iteration loop)
-python matrix_runner.py --model claude --method direct --max-prompts 1 \\
-    --prompt-file prompts/dummy_prompts.json
+python matrix_runner.py --model claude --method direct --max-prompts 1 --prompt-file prompts/dummy_prompts.json
 
 # 6. ADVERSARY OVERRIDE (PAIR / Crescendo's red-teaming LLM; default: moonshot)
 ADVERSARY_PROVIDER=deepseek python matrix_runner.py --method pair
@@ -65,14 +64,11 @@ FLAGS
 --mode LABEL               written to each record's "mode" field (default: smoke)
 
 ================================================================================
-FILENAME COLLISIONS
+RESUME
 ================================================================================
-Each invocation gets its own file — old runs are never touched. If today's
-natural filename (e.g. ``1_260426_dummy_prompts.jsonl``) already exists
-anywhere under --output-root, the new run writes to ``..._v2.jsonl``,
-``..._v3.jsonl``, and so on. Cells are flushed one line at a time, so a
-crashed run leaves a partial file you can inspect; the next invocation just
-picks the next version.
+Cells flush one line at a time. Re-running the same command after a crash,
+Ctrl-C, or kill skips cells already on disk anywhere under --output-root.
+To force a redo, delete the matching JSONL file (or just the relevant lines).
 """
 
 from __future__ import annotations
@@ -122,7 +118,8 @@ BASE_BACKOFF_SECONDS = 5
 # aborts mid-run" guarantee. Hard-fail at import time if a future edit lowers it.
 assert MAX_RETRIES >= 1, "MAX_RETRIES must be ≥ 1 to guarantee at least one attempt per cell."
 
-# Cap victim target responses to HarmBench's standardized 512 tokens.
+# Default cap for victim completion tokens (HarmBench: 512). Per-model
+# overrides live in ``ModelConfig.victim_max_tokens`` (e.g. Gemini 2048).
 # HarmBench reports that varying this can shift ASR by up to 30%, so do not
 # lower without recording the change in the run metadata. The adversary
 # target (PAIR/Crescendo) is intentionally built without this cap — it needs
@@ -300,14 +297,15 @@ def _extract_transcript(
             "data_type": getattr(p, "converted_value_data_type", None),
         })
 
-    final_response = next(
-        (
-            entry["converted_value"]
-            for entry in reversed(conversation)
-            if entry.get("role") == "assistant" and entry.get("converted_value")
-        ),
-        None,
-    )
+    # Last assistant turn, even if empty — Moonshot/Kimi sometimes returns HTTP 200
+    # with no message body; skipping falsy converted_value hid that and set
+    # final_response=None while PyRIT could still report SUCCESS.
+    final_response: str | None = None
+    for entry in reversed(conversation):
+        if entry.get("role") == "assistant":
+            val = entry.get("converted_value")
+            final_response = "" if val is None else str(val)
+            break
     return conversation or None, final_response
 
 
@@ -351,6 +349,12 @@ async def run_single_cell(
             )
 
             conversation, final_response = _extract_transcript(str(result.conversation_id))
+            if "SUCCESS" in outcome and not (final_response or "").strip():
+                logger.warning(
+                    "  [HOLLOW] %s | %s | %s — victim assistant text is empty; "
+                    "outcome was %s (placeholder scorer may not reflect usefulness).",
+                    model_display_name, method_name, category, outcome,
+                )
 
             return CellResult(
                 model=model_display_name,
@@ -469,24 +473,6 @@ def _cell_path(output_root: Path, model_display: str, method: str, filename: str
     return output_root / _slug(model_display) / method / filename
 
 
-def _resolve_output_filename(output_root: Path, base_stem: str) -> str:
-    """Pick a non-colliding filename for this invocation.
-
-    If ``<base_stem>.jsonl`` already exists anywhere under ``output_root``,
-    bump the suffix: ``_v2``, ``_v3``, ... — so each invocation produces an
-    independent file and prior runs are never overwritten or appended to.
-    """
-    if not output_root.exists():
-        return f"{base_stem}.jsonl"
-    existing = {p.name for p in output_root.rglob("*.jsonl")}
-    if f"{base_stem}.jsonl" not in existing:
-        return f"{base_stem}.jsonl"
-    v = 2
-    while f"{base_stem}_v{v}.jsonl" in existing:
-        v += 1
-    return f"{base_stem}_v{v}.jsonl"
-
-
 def _serialize_cell(
     cell: "CellResult",
     model_config: ModelConfig,
@@ -503,6 +489,13 @@ def _serialize_cell(
             "content_filter": cell.content_filter,
             "safety_message": cell.safety_message,
         }
+    canonical_response = (
+        cell.final_response
+        if cell.final_response is not None
+        else (cell.safety_message or cell.error_message)
+    )
+    has_scorable_text = bool((canonical_response or "").strip())
+
     return {
         "mode": mode,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -521,21 +514,16 @@ def _serialize_cell(
         # Populated in both refusal paths so the scorer has one place to read:
         #   - HTTP 200 with text  -> last assistant turn from the conversation
         #   - HTTP error / 204 / content_filter -> the provider's safety/error string
-        "final_response": (
-            cell.final_response
-            if cell.final_response is not None
-            else (cell.safety_message or cell.error_message)
-        ),
+        "final_response": canonical_response,
         # Scoring inclusion signals:
-        #   response_received: True if we have something to score — either model
-        #     text (HTTP 200) or an explicit API-level refusal. False ONLY for
-        #     network/transient/non-refusal errors that should be excluded
-        #     from the denominator of any aggregate score.
+        #   response_received: True if there is non-empty victim text to judge OR an
+        #     explicit API-level refusal (content_filter). Empty 200 bodies count as
+        #     False so aggregates don't treat hollow replies as scored responses.
         #   is_refused: True when we *know* the cell is a refusal (API content
         #     filter blocked it). For HTTP 200 responses defaults to False —
         #     StrongREJECT (or whichever judge replaces the placeholder scorer)
         #     overwrites this once it's wired up.
-        "response_received": (cell.error_type is None) or bool(cell.content_filter),
+        "response_received": has_scorable_text or bool(cell.content_filter),
         "is_refused": bool(cell.content_filter),
         "conversation": cell.conversation,
         "error": error,
@@ -672,9 +660,12 @@ async def main() -> None:
     buildable: list[tuple[ModelConfig, OpenAIChatTarget]] = []
     for cfg in available_models:
         try:
-            buildable.append(
-                (cfg, build_target(cfg, max_tokens=MAX_TARGET_COMPLETION_TOKENS))
+            victim_cap = (
+                cfg.victim_max_tokens
+                if cfg.victim_max_tokens is not None
+                else MAX_TARGET_COMPLETION_TOKENS
             )
+            buildable.append((cfg, build_target(cfg, max_tokens=victim_cap)))
         except NotImplementedError as exc:
             logger.warning("Skipping %s: %s", cfg.display_name, exc)
 
@@ -748,18 +739,23 @@ async def main() -> None:
 
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
-    # Filename base: <prompt_count>_<ddmmyy>_<dataset>. If that exact name
-    # already exists anywhere under output_root (from a prior invocation),
-    # we version up — _v2, _v3, ... — so each run produces its own file
-    # and old data is never touched.
+    # Filename: <prompt_count>_<ddmmyy>_<dataset>.jsonl. Same prompt count +
+    # same day + same dataset appends to the same file, which composes
+    # naturally with resume logic.
     dataset_name = Path(args.prompt_file).stem
-    base_stem = f"{prompt_count}_{datetime.now().strftime('%d%m%y')}_{dataset_name}"
-    output_filename = _resolve_output_filename(output_root, base_stem)
-    if output_filename != f"{base_stem}.jsonl":
-        logger.info("Filename %s.jsonl already exists; using %s", base_stem, output_filename)
+    output_filename = (
+        f"{prompt_count}_{datetime.now().strftime('%d%m%y')}_{dataset_name}.jsonl"
+    )
+    completed_keys = _load_completed_keys(output_root)
+    if completed_keys:
+        logger.info(
+            "Resume: %d cell(s) already under %s — will skip them.",
+            len(completed_keys), output_root,
+        )
 
     all_results: list[CellResult] = []
     completed = 0
+    skipped_resume = 0
     # One file handle per (model, method); opened lazily on first write.
     out_handles: dict[tuple[str, str], TextIO] = {}
 
@@ -793,6 +789,20 @@ async def main() -> None:
                     prompt_text, prompt_id = _extract_prompt(prompt_obj, category)
 
                     completed += 1
+                    cell_key = _cell_key(
+                        model_config.display_name, method_name, category,
+                        prompt_id, prompt_text,
+                    )
+                    if cell_key in completed_keys:
+                        skipped_resume += 1
+                        logger.info(
+                            "[%d/%d] SKIP (resumed) %s on %s for %s (%s)",
+                            completed, total_cells_expected, method_name,
+                            model_config.display_name, category,
+                            prompt_id or "no-id",
+                        )
+                        continue
+
                     logger.info(
                         "[%d/%d] Running %s on %s for %s (%s)...",
                         completed, total_cells_expected, method_name,
@@ -826,6 +836,7 @@ async def main() -> None:
                     )
                     fh.write(json.dumps(record, ensure_ascii=False) + "\n")
                     fh.flush()
+                    completed_keys.add(cell_key)
 
     for fh in out_handles.values():
         fh.close()
@@ -836,6 +847,8 @@ async def main() -> None:
     print("=" * 70)
     print(f"Results written under: {output_root.resolve()}")
     print(f"Mode: {args.mode}  |  Layout: <model>/<method>/{output_filename}")
+    if skipped_resume:
+        print(f"Skipped (already on disk): {skipped_resume}")
 
     safety_blocks = sum(1 for r in all_results if r.content_filter)
     failures = sum(

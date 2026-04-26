@@ -33,6 +33,13 @@ class ModelConfig:
     # suppress chain-of-thought output that inflates cost and confuses parsers.
     temperature: float | None = None
     extra_body: dict[str, Any] | None = field(default=None)
+    # OpenAI reasoning models (e.g. gpt-5.4) return 400 if the request includes
+    # ``max_tokens``; PyRIT must send ``max_completion_tokens`` instead. All other
+    # registered compat endpoints expect the legacy field.
+    use_max_completion_tokens: bool = False
+    # When set, matrix_runner uses this as the victim completion cap instead of
+    # its global default (512). Unset rows follow HarmBench's standard cap.
+    victim_max_tokens: int | None = None
     # Role hints — informational only, used by the report writer to label rows.
     # "frontier_closed" | "frontier_supplementary" | "open_weight_control"
     role: str = "frontier_closed"
@@ -65,6 +72,7 @@ MODEL_REGISTRY: list[ModelConfig] = [
         endpoint="https://api.openai.com/v1",
         api_key_env="OPENAI_API_KEY",
         model_name="gpt-5.4",
+        use_max_completion_tokens=True,
         role="frontier_closed",
     ),
     ModelConfig(
@@ -73,6 +81,10 @@ MODEL_REGISTRY: list[ModelConfig] = [
         endpoint="https://generativelanguage.googleapis.com/v1beta/openai",
         api_key_env="GEMINI_API_KEY",
         model_name="gemini-3-pro-preview",
+        # 2048 (not default 512): Gemini 3 often still truncates at 1024 with
+        # reasoning; steer thinking low so more of the budget is visible text.
+        extra_body={"reasoning_effort": "low"},
+        victim_max_tokens=2048,
         role="frontier_closed",
     ),
     ModelConfig(
@@ -148,11 +160,10 @@ def build_target(
         config: Model registry row.
         max_tokens: Optional response token cap. matrix_runner.py sets this
             on victim targets so output stays bounded; adversary targets are
-            intentionally built without a cap. We use ``max_tokens`` (the
-            legacy OpenAI field) rather than ``max_completion_tokens`` (the
-            newer o-series field) because DeepSeek, Anthropic-compat,
-            Together, xAI, Moonshot, and Gemini's compat layers only honor
-            the legacy name — newer-name fields are silently dropped.
+            intentionally built without a cap. For most providers this is sent
+            as PyRIT/OpenAI ``max_tokens``. Rows with ``use_max_completion_tokens``
+            (currently GPT-5.4) send ``max_completion_tokens`` instead, because
+            OpenAI rejects ``max_tokens`` for those models.
 
     Raises:
         EnvironmentError: If the required API key is missing.
@@ -173,6 +184,9 @@ def build_target(
     if config.extra_body is not None:
         kwargs["extra_body_parameters"] = config.extra_body
     if max_tokens is not None:
-        kwargs["max_tokens"] = max_tokens
+        if config.use_max_completion_tokens:
+            kwargs["max_completion_tokens"] = max_tokens
+        else:
+            kwargs["max_tokens"] = max_tokens
 
     return OpenAIChatTarget(**kwargs)
