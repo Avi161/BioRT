@@ -33,6 +33,10 @@ class ModelConfig:
     # suppress chain-of-thought output that inflates cost and confuses parsers.
     temperature: float | None = None
     extra_body: dict[str, Any] | None = field(default=None)
+    # Cap on completion tokens. None = provider default (no cap from our side).
+    # Registry rows leave this None; the judge pipeline overrides per-call via
+    # dataclasses.replace so the attack pipeline is never affected.
+    max_completion_tokens: int | None = None
     # Role hints — informational only, used by the report writer to label rows.
     # "frontier_closed" | "frontier_supplementary" | "open_weight_control"
     role: str = "frontier_closed"
@@ -158,5 +162,7 @@ def build_target(config: ModelConfig) -> OpenAIChatTarget:
         kwargs["temperature"] = config.temperature
     if config.extra_body is not None:
         kwargs["extra_body_parameters"] = config.extra_body
+    if config.max_completion_tokens is not None:
+        kwargs["max_completion_tokens"] = config.max_completion_tokens
 
     return OpenAIChatTarget(**kwargs)
