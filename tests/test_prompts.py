@@ -8,7 +8,13 @@ from pathlib import Path
 import pytest
 
 PROMPTS_PATH = Path(__file__).parent.parent / "prompts" / "mock_prompts.json"
-EXPECTED_CATEGORIES = {"synthesis", "evasion", "lab_automation", "virology"}
+EXPECTED_CATEGORIES = {
+    "synthesis_evasion",
+    "lab_automation_uplift",
+    "dual_use_protocol",
+    "acquisition_kyc",
+    "virology",
+}
 
 
 @pytest.fixture

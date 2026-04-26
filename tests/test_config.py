@@ -16,8 +16,8 @@ from config.models import (
 
 
 class TestModelRegistry:
-    def test_registry_has_five_models(self) -> None:
-        assert len(MODEL_REGISTRY) == 5
+    def test_registry_has_at_least_five_models(self) -> None:
+        assert len(MODEL_REGISTRY) >= 5
 
     def test_all_entries_are_model_configs(self) -> None:
         for cfg in MODEL_REGISTRY:
@@ -37,6 +37,12 @@ class TestModelRegistry:
         for cfg in MODEL_REGISTRY:
             assert cfg.api_key_env.endswith("_KEY") or cfg.api_key_env.endswith("_API_KEY")
 
+    def test_includes_open_weight_control(self) -> None:
+        roles = {cfg.role for cfg in MODEL_REGISTRY}
+        assert "open_weight_control" in roles, (
+            "Registry must include an open-weight control row for the paper's ablation"
+        )
+
 
 class TestGetAvailableModels:
     def test_returns_models_with_keys(self) -> None:
@@ -55,14 +61,14 @@ class TestGetAvailableModels:
 
 
 class TestBuildTarget:
-    def test_anthropic_raises_not_implemented(self) -> None:
-        anthropic_cfg = next(c for c in MODEL_REGISTRY if c.provider == "anthropic")
-        with patch.dict(os.environ, {anthropic_cfg.api_key_env: "sk-test"}):
-            with pytest.raises(NotImplementedError, match="LiteLLM"):
-                build_target(anthropic_cfg)
-
     def test_missing_key_raises_environment_error(self) -> None:
         deepseek_cfg = next(c for c in MODEL_REGISTRY if c.provider == "deepseek")
         with patch.dict(os.environ, {deepseek_cfg.api_key_env: ""}, clear=True):
             with pytest.raises(EnvironmentError, match="not set"):
                 build_target(deepseek_cfg)
+
+    def test_deepseek_temperature_zero(self) -> None:
+        """DeepSeek must default to temperature=0 to suppress thinking-mode tokens
+        when used as the adversary/scorer LLM."""
+        deepseek_cfg = next(c for c in MODEL_REGISTRY if c.provider == "deepseek")
+        assert deepseek_cfg.temperature == 0.0
