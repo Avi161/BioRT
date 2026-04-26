@@ -17,6 +17,8 @@ This is the source-of-truth runbook for the next teammate.
 - Backend tests + smoke validation pass
 - Frontend lint + build pass
 - Prompt converter exists: `backend/scripts/convert_prompts.py`
+- `backend/prompts/prompts_long.json` is the completed real long-prompt dataset
+- Short prompt dataset is still pending (not yet present as JSON)
 
 ---
 
@@ -46,30 +48,33 @@ python validate_attacks.py
 
 ---
 
-## 2) Convert real prompt dataset from C1
+## 2) Finalize short prompt dataset (long set already complete)
 
 ## Why
-All benchmark rows and paper figures depend on stable prompt/category keys.
+The long prompt set is already complete. Remaining prompt work is to create the short set with the same stable schema so both can be benchmarked/reportable.
 
 ## Steps
-1. Obtain C1 CSV export in `docs/`.
-2. Run converter:
+1. Keep `backend/prompts/prompts_long.json` unchanged as the completed long set.
+2. Obtain C1 short-prompt CSV export in `docs/`.
+3. Convert short set:
 ```bash
 cd backend
 source ../.venv/bin/activate
 python scripts/convert_prompts.py \
-  --input ../docs/<c1_export>.csv \
-  --output prompts/real_prompts.json \
-  --source "C1 spreadsheet export YYYY-MM-DD" \
+  --input ../docs/<c1_short_export>.csv \
+  --output prompts/prompts_short.json \
+  --source "C1 short spreadsheet export YYYY-MM-DD" \
   --min-per-category 5
 ```
-3. Validate output quickly:
+4. Validate short output quickly:
 - 5 canonical categories present
 - all retained rows have `abstraction_check == "Pass"`
 - unique `prompt_id` across file
+5. Ensure prompt IDs do not collide between long and short datasets (recommended prefixing convention per set).
 
 ## Deliverable
-`backend/prompts/real_prompts.json`
+- `backend/prompts/prompts_long.json` (locked, complete)
+- `backend/prompts/prompts_short.json` (new, validated)
 
 ---
 
@@ -231,7 +236,7 @@ Produce and freeze:
 
 ## 10) Task board (ordered)
 
-1. C1 data conversion complete
+1. C1 short-prompt conversion complete (long set already complete)
 2. StrongREJECT judge integration complete
 3. Judge calibration complete
 4. Pilot benchmark clean
@@ -245,7 +250,7 @@ Produce and freeze:
 
 ## Definition of done
 
-- [ ] Real prompts converted and validated
+- [ ] Short real prompts converted/validated; long set retained as source of truth
 - [ ] StrongREJECT-derived judging integrated at all HOOKs
 - [ ] Calibration complete and documented
 - [ ] Pilot + full benchmark runs complete
