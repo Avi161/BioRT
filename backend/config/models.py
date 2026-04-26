@@ -132,13 +132,27 @@ def get_available_models() -> list[ModelConfig]:
     return available
 
 
-def build_target(config: ModelConfig) -> OpenAIChatTarget:
+def build_target(
+    config: ModelConfig,
+    *,
+    max_tokens: int | None = None,
+) -> OpenAIChatTarget:
     """Construct a PyRIT OpenAIChatTarget from a model configuration.
 
     All registered providers expose OpenAI-compatible chat/completions
     endpoints (Anthropic via its OpenAI SDK compatibility layer, xAI and
     Together.ai natively). Optional ``temperature`` and ``extra_body`` from
     the ModelConfig are forwarded only when set.
+
+    Args:
+        config: Model registry row.
+        max_tokens: Optional response token cap. matrix_runner.py sets this
+            on victim targets so output stays bounded; adversary targets are
+            intentionally built without a cap. We use ``max_tokens`` (the
+            legacy OpenAI field) rather than ``max_completion_tokens`` (the
+            newer o-series field) because DeepSeek, Anthropic-compat,
+            Together, xAI, Moonshot, and Gemini's compat layers only honor
+            the legacy name — newer-name fields are silently dropped.
 
     Raises:
         EnvironmentError: If the required API key is missing.
@@ -158,5 +172,7 @@ def build_target(config: ModelConfig) -> OpenAIChatTarget:
         kwargs["temperature"] = config.temperature
     if config.extra_body is not None:
         kwargs["extra_body_parameters"] = config.extra_body
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
 
     return OpenAIChatTarget(**kwargs)
