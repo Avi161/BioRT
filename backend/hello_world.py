@@ -35,19 +35,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_mock_prompts(path: str = "prompts/mock_prompts.json", limit: int = 5) -> list[str]:
-    """Load mock prompts from JSON, flattening across categories.
+def load_mock_prompts(path: str = "prompts/prompts_long.json", limit: int = 5) -> list[str]:
+    """Load prompts from JSON, flattening across categories.
 
     Args:
-        path: Path to the mock prompts JSON file.
+        path: Path to the prompts JSON file.
         limit: Maximum number of prompts to return.
 
     Returns:
         A flat list of prompt strings.
     """
     with open(path) as fh:
-        data: dict[str, list[str]] = json.load(fh)
-    flat = [prompt for prompts in data.values() for prompt in prompts]
+        data = json.load(fh)
+    categories = data["categories"] if "categories" in data else data
+    flat = [
+        entry["prompt_text"] if isinstance(entry, dict) else entry
+        for prompts in categories.values()
+        for entry in prompts
+    ]
     return flat[:limit]
 
 
