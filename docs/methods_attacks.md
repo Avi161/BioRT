@@ -1,6 +1,6 @@
 # Methods — Attack Library
 
-The harness implements four jailbreak methods drawn directly from published red-teaming literature, all built on Microsoft's PyRIT framework (v0.13). The methods are configured in `attacks.py` and dispatched through `ATTACK_METHODS`, which the runner iterates over for every (model, prompt) pair.
+The harness implements four jailbreak methods drawn directly from published red-teaming literature, all built on Microsoft's PyRIT framework (v0.13). The methods are configured in `backend/attacks.py` and dispatched through `ATTACK_METHODS`, which the runner iterates over for every (model, prompt) pair.
 
 **Direct request (baseline)** sends each prompt to the target verbatim with no transformation, implemented via PyRIT's `PromptSendingAttack`. This establishes the no-attack refusal floor against which every adversarial method is compared.
 
@@ -10,7 +10,7 @@ The harness implements four jailbreak methods drawn directly from published red-
 
 **Crescendo** (Russinovich et al. 2024) is a multi-turn benign-to-harmful escalation in which the adversarial LLM begins with innocuous queries and gradually steers toward the target objective, backtracking when refused. Implemented via PyRIT's `CrescendoAttack` with `max_turns=5` and `max_backtracks=5`.
 
-Both PAIR and Crescendo require an adversarial-LLM target; we use DeepSeek V4 Flash with `temperature=0` to suppress thinking-mode tokens. The inner-loop "did the response satisfy the objective" decision is currently a `SelfAskTrueFalseScorer` placeholder; it does **not** affect headline results, which are produced by the calibrated bio-aware StrongREJECT-derived judge applied in a separate scoring pass over the stored conversations.
+Both PAIR and Crescendo require an adversarial-LLM target; we currently default to Kimi (`ADVERSARY_PROVIDER=moonshot`) for cost control. The inner-loop "did the response satisfy the objective" decision is currently a `SelfAskTrueFalseScorer` placeholder; it does **not** affect headline results, which are produced by the calibrated bio-aware StrongREJECT-derived judge applied in a separate scoring pass over the stored conversations.
 
 ## References
 

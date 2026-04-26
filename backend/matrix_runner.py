@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import traceback
 from dataclasses import dataclass
@@ -55,17 +56,37 @@ assert MAX_RETRIES >= 1, "MAX_RETRIES must be ≥ 1 to guarantee at least one at
 # Prompt loading
 # ---------------------------------------------------------------------------
 
-def load_prompts(path: str = "prompts/mock_prompts.json") -> dict[str, list[str]]:
+def load_prompts(
+    path: str = "prompts/prompts_long.json",
+) -> dict[str, list[dict | str]]:
     """Load categorized prompts from a JSON file.
+
+    Supports two schemas:
+    - **Rich (v1):** ``{schema_version: 1, categories: {cat: [{prompt_id, prompt_text, ...}]}}``
+    - **Flat (legacy):** ``{cat: [str, ...]}``  (backward compat for mock prompts / tests)
 
     Args:
         path: Path to the prompts JSON file.
 
     Returns:
-        Dict mapping category names to lists of prompt strings.
+        Dict mapping category names to lists of prompt objects (dicts) or
+        plain strings (legacy).
     """
     with open(path) as fh:
-        return json.load(fh)
+        doc = json.load(fh)
+
+    if "schema_version" in doc:
+        version = doc["schema_version"]
+        if version != 1:
+            raise ValueError(f"Unsupported prompt schema_version: {version}")
+        categories = doc.get("categories")
+        if not isinstance(categories, dict):
+            raise ValueError("Rich prompt schema must include 'categories' as an object")
+        logger.info("Loaded rich prompt schema v1 from %s", path)
+        return categories
+
+    logger.info("Loaded legacy flat prompt schema from %s", path)
+    return doc
 
 
 # Attack factories live in attacks.py and are imported as ATTACK_METHODS above.
@@ -84,6 +105,7 @@ class CellResult:
     status: str
     conversation_id: str | None
     elapsed_seconds: float
+    prompt_id: str | None = None
     adversary: str | None = None
     scorer: str | None = None
     error_type: str | None = None
@@ -99,6 +121,7 @@ async def run_single_cell(
     prompt: str,
     model_display_name: str,
     adversary_display_name: str | None = None,
+    prompt_id: str | None = None,
 ) -> CellResult:
     """Execute one cell of the test matrix with retry logic."""
     build_fn = ATTACK_METHODS[method_name]
@@ -106,16 +129,20 @@ async def run_single_cell(
     t0 = time.monotonic()
     last_exc: BaseException | None = None
 
+    memory_labels: dict[str, str] = {
+        "model": model_display_name,
+        "method": method_name,
+        "category": category,
+    }
+    if prompt_id:
+        memory_labels["prompt_id"] = prompt_id
+
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             attack = build_fn(target, adversary, prompt)
             result = await attack.execute_async(
                 objective=prompt,
-                memory_labels={
-                    "model": model_display_name,
-                    "method": method_name,
-                    "category": category,
-                },
+                memory_labels=memory_labels,
             )
             elapsed = time.monotonic() - t0
 
@@ -132,6 +159,7 @@ async def run_single_cell(
                 status=outcome,
                 conversation_id=str(result.conversation_id),
                 elapsed_seconds=elapsed,
+                prompt_id=prompt_id,
                 adversary=adversary_display_name,
                 scorer=scorer_id,
             )
@@ -162,6 +190,7 @@ async def run_single_cell(
         status=f"ERROR: {type(exc).__name__}: {exc}" if exc else "ERROR: unknown",
         conversation_id=None,
         elapsed_seconds=elapsed,
+        prompt_id=prompt_id,
         adversary=adversary_display_name,
         scorer=scorer_id,
         error_type=type(exc).__name__ if exc else None,
@@ -176,6 +205,33 @@ async def run_single_cell(
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+CRESCENDO_PROVIDERS: frozenset[str] = frozenset({"deepseek", "moonshot", "together"})
+
+# Kimi (Moonshot) is the default adversary for PAIR/Crescendo — override with ADVERSARY_PROVIDER.
+DEFAULT_ADVERSARY_PROVIDER = "moonshot"
+
+
+def _is_same_model(a: ModelConfig, b: ModelConfig) -> bool:
+    """Return True when two registry rows point to the same logical model."""
+    return a.provider == b.provider and a.model_name == b.model_name
+
+
+def _extract_prompt(prompt_obj: dict | str, category: str) -> tuple[str, str | None]:
+    """Normalize rich/legacy prompt entries into (prompt_text, prompt_id)."""
+    if isinstance(prompt_obj, dict):
+        prompt_text = prompt_obj.get("prompt_text")
+        if not isinstance(prompt_text, str) or not prompt_text.strip():
+            raise ValueError(
+                f"Invalid prompt object in category {category!r}: missing/empty 'prompt_text'"
+            )
+        prompt_id = prompt_obj.get("prompt_id")
+        return prompt_text, prompt_id if isinstance(prompt_id, str) else None
+
+    if not isinstance(prompt_obj, str) or not prompt_obj.strip():
+        raise ValueError(f"Invalid legacy prompt in category {category!r}: expected non-empty string")
+    return prompt_obj, None
+
 
 async def main() -> None:
     await initialize_pyrit_async(memory_db_type=IN_MEMORY)
@@ -194,15 +250,45 @@ async def main() -> None:
     if not buildable:
         raise RuntimeError("No models could be built. Check your .env and config/models.py.")
 
-    # Use the first buildable model as the adversary / scorer LLM.
-    adversary_config, adversary_target = buildable[0]
+    # Adversary selection: ADVERSARY_PROVIDER env var, else Kimi (moonshot).
+    raw_adv = os.getenv("ADVERSARY_PROVIDER", DEFAULT_ADVERSARY_PROVIDER)
+    adversary_provider = (raw_adv or DEFAULT_ADVERSARY_PROVIDER).strip()
+    adversary_config: ModelConfig | None = None
+    adversary_target: OpenAIChatTarget | None = None
+
+    for cfg, tgt in buildable:
+        if cfg.provider == adversary_provider:
+            adversary_config, adversary_target = cfg, tgt
+            break
+    if adversary_config is None:
+        raise RuntimeError(
+            f"ADVERSARY_PROVIDER={adversary_provider!r} but no buildable model "
+            f"has that provider. Set MOONSHOT_API_KEY (or the matching key) and re-run. "
+            f"Available: {[c.provider for c, _ in buildable]}"
+        )
+
     logger.info("Adversary / scorer LLM: %s", adversary_config.display_name)
 
     prompt_count = sum(len(p) for p in prompts_by_category.values())
-    total_cells = len(buildable) * len(ATTACK_METHODS) * prompt_count
+    total_cells_upper = len(buildable) * len(ATTACK_METHODS) * prompt_count
+    total_cells_expected = 0
+    for model_config, _ in buildable:
+        for method_name in ATTACK_METHODS:
+            if (
+                method_name in METHODS_REQUIRING_ADVERSARY
+                and _is_same_model(adversary_config, model_config)
+            ):
+                continue
+            if (
+                method_name == "crescendo"
+                and model_config.provider not in CRESCENDO_PROVIDERS
+            ):
+                continue
+            total_cells_expected += prompt_count
+
     logger.info(
-        "Matrix: %d models x %d methods x %d prompts = %d cells",
-        len(buildable), len(ATTACK_METHODS), prompt_count, total_cells,
+        "Matrix: %d models x %d methods x %d prompts = %d cells (expected run) / %d upper bound",
+        len(buildable), len(ATTACK_METHODS), prompt_count, total_cells_expected, total_cells_upper,
     )
 
     all_results: list[CellResult] = []
@@ -210,26 +296,39 @@ async def main() -> None:
 
     for model_config, target in buildable:
         for method_name in ATTACK_METHODS:
-            # Guard: PAIR / Crescendo are scientifically invalid when target == adversary
-            # (target attacks itself, scores itself). Skip with a loud error rather than
-            # silently produce results that look fine but mean nothing.
+            # Guard: PAIR / Crescendo are scientifically invalid when target == adversary.
             if (
                 method_name in METHODS_REQUIRING_ADVERSARY
-                and adversary_config.display_name == model_config.display_name
+                and _is_same_model(adversary_config, model_config)
             ):
                 logger.error(
-                    "Skipping %s on %s — only one buildable model, %s requires a separate "
-                    "adversary. Add another API key and re-run.",
+                    "Skipping %s on %s — %s requires a separate adversary.",
                     method_name, model_config.display_name, method_name,
                 )
                 continue
+
+            # Budget gate: Crescendo is only run against cheap providers.
+            if (
+                method_name == "crescendo"
+                and model_config.provider not in CRESCENDO_PROVIDERS
+            ):
+                logger.info(
+                    "Skipping crescendo on %s (budget gate — provider %s not in %s)",
+                    model_config.display_name, model_config.provider,
+                    sorted(CRESCENDO_PROVIDERS),
+                )
+                continue
+
             for category, category_prompts in prompts_by_category.items():
-                for prompt in category_prompts:
+                for prompt_obj in category_prompts:
+                    prompt_text, prompt_id = _extract_prompt(prompt_obj, category)
+
                     completed += 1
                     logger.info(
-                        "[%d/%d] Running %s on %s for %s...",
-                        completed, total_cells, method_name,
+                        "[%d/%d] Running %s on %s for %s (%s)...",
+                        completed, total_cells_expected, method_name,
                         model_config.display_name, category,
+                        prompt_id or "no-id",
                     )
 
                     cell_result = await run_single_cell(
@@ -237,9 +336,10 @@ async def main() -> None:
                         adversary=adversary_target,
                         method_name=method_name,
                         category=category,
-                        prompt=prompt,
+                        prompt=prompt_text,
                         model_display_name=model_config.display_name,
                         adversary_display_name=adversary_config.display_name,
+                        prompt_id=prompt_id,
                     )
                     all_results.append(cell_result)
 
@@ -254,9 +354,10 @@ async def main() -> None:
 
     for result in all_results:
         status_icon = "+" if not result.status.startswith("ERROR") else "X"
+        tag = f" [{result.prompt_id}]" if result.prompt_id else ""
         print(
             f"  [{status_icon}] {result.model:<22} | {result.method:<12} "
-            f"| {result.category:<16} | {result.status}"
+            f"| {result.category:<16} | {result.status}{tag}"
         )
 
     # HOOK: StrongREJECT scoring goes here.

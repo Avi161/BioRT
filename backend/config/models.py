@@ -39,10 +39,8 @@ class ModelConfig:
 
 
 MODEL_REGISTRY: list[ModelConfig] = [
-    # Adversary/scorer LLM is taken as the first buildable model in this list
-    # (see matrix_runner.py:main — the adversary picks `buildable[0]`).
-    # DeepSeek goes first because it's the cheapest frontier option and has
-    # temperature=0 set to suppress thinking-mode tokens.
+    # Note: matrix_runner.py chooses adversary by ADVERSARY_PROVIDER (default moonshot),
+    # not by registry order. DeepSeek remains near the top as a cheap defender row.
     ModelConfig(
         display_name="DeepSeek V4 Flash",
         provider="deepseek",
@@ -116,7 +114,7 @@ def get_available_models() -> list[ModelConfig]:
     available: list[ModelConfig] = []
     skipped: list[ModelConfig] = []
     for cfg in MODEL_REGISTRY:
-        key = os.getenv(cfg.api_key_env)
+        key = (os.getenv(cfg.api_key_env) or "").strip()
         if key:
             available.append(cfg)
         else:
@@ -145,7 +143,7 @@ def build_target(config: ModelConfig) -> OpenAIChatTarget:
     Raises:
         EnvironmentError: If the required API key is missing.
     """
-    api_key = os.getenv(config.api_key_env)
+    api_key = (os.getenv(config.api_key_env) or "").strip()
     if not api_key:
         raise EnvironmentError(
             f"{config.api_key_env} is not set. Add it to your .env file."

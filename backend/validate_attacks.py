@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
 import traceback
@@ -52,21 +53,29 @@ logger = logging.getLogger("validate_attacks")
 BENIGN_OBJECTIVE = "What is 2+2?"
 RESULTS_DIR = Path(__file__).parent / "results"
 
-# Per-attack smoke target. All four attacks run against Gemini (generous rate
-# limits, all attack types fit). Bonus: direct call against Anthropic to verify
-# the OpenAI-compat wrapper for Claude is wired up correctly.
+# Per-attack smoke target. All four attacks run against Kimi (cheap, all attack
+# types fit). Bonus: direct call against DeepSeek to verify the adversary LLM
+# endpoint is wired up correctly.
 SMOKE_PLAN: list[tuple[str, str]] = [
-    ("google", "direct"),
-    ("google", "base64"),
-    ("google", "pair"),
-    ("google", "crescendo"),
-    ("anthropic", "direct"),
+    ("moonshot", "direct"),
+    ("moonshot", "base64"),
+    ("moonshot", "pair"),
+    ("moonshot", "crescendo"),
+    ("deepseek", "direct"),
 ]
 # Pre-call sleep (seconds) by provider — used to respect tight per-key limits.
 PER_PROVIDER_SLEEP: dict[str, float] = {}
 
 
 _MISSING = object()
+
+
+def _outcome_is_success(outcome: Any) -> bool:
+    """Return True only for explicit SUCCESS outcomes."""
+    name = str(getattr(outcome, "name", "")).upper()
+    if name:
+        return name == "SUCCESS"
+    return str(outcome).strip().upper() in {"ATTACKOUTCOME.SUCCESS", "SUCCESS"}
 
 
 def _find_config(provider: str) -> ModelConfig | None:
@@ -199,7 +208,7 @@ async def _run_attack(
         record["outcome"] = outcome_str
         record["conversation"] = _serialize_pieces(result.conversation_id)
         record["executed_without_error"] = bool(record["conversation"])
-        record["attack_succeeded"] = outcome_str.lower().endswith("success")
+        record["attack_succeeded"] = _outcome_is_success(result.outcome)
 
         path = _write_result_json(record)
         summary = (
@@ -249,19 +258,19 @@ async def main() -> int:
 
     await initialize_pyrit_async(memory_db_type=IN_MEMORY)
 
-    # DeepSeek is the adversary/scorer LLM for PAIR + Crescendo (temperature=0).
-    # build_target may raise EnvironmentError (missing key) or other PyRIT-level
-    # errors (ValueError/TypeError on kwarg drift, pydantic.ValidationError on
-    # malformed endpoint). Surface each distinctly instead of swallowing into a
-    # generic "no adversary" state.
-    deepseek_cfg = _find_config("deepseek")
+    # Adversary / scorer LLM: honour ADVERSARY_PROVIDER env var, default Kimi (moonshot).
+    adversary_provider = (os.getenv("ADVERSARY_PROVIDER", "moonshot") or "moonshot").strip()
+    adversary_cfg_resolved = _find_config(adversary_provider)
     adversary: Any = None
-    if deepseek_cfg is None:
-        logger.warning("No 'deepseek' provider in MODEL_REGISTRY — adversary unavailable.")
+    if adversary_cfg_resolved is None:
+        logger.warning(
+            "No %r provider in MODEL_REGISTRY — adversary unavailable.",
+            adversary_provider,
+        )
     else:
         try:
-            adversary = build_target(deepseek_cfg)
-            logger.info("Adversary / scorer LLM: %s", deepseek_cfg.display_name)
+            adversary = build_target(adversary_cfg_resolved)
+            logger.info("Adversary / scorer LLM: %s", adversary_cfg_resolved.display_name)
         except EnvironmentError as exc:
             logger.error("Adversary LLM unavailable (missing key): %s", exc)
         except Exception as exc:  # noqa: BLE001 — log and continue with adversary=None
@@ -276,8 +285,9 @@ async def main() -> int:
         if needs_adversary:
             logger.error(
                 "SMOKE_PLAN requests %s but no adversary LLM is buildable. "
-                "Set DEEPSEEK_API_KEY or remove these entries from SMOKE_PLAN.",
+                "Set %s or remove these entries from SMOKE_PLAN.",
                 needs_adversary,
+                adversary_cfg_resolved.api_key_env if adversary_cfg_resolved else "ADVERSARY_PROVIDER",
             )
             return 2
 
@@ -310,7 +320,7 @@ async def main() -> int:
         # this point (hard-fail above). For direct/base64, falling back to the
         # target as a no-op "adversary" is fine — they don't read it.
         adv = adversary if adversary is not None else target
-        adv_cfg = deepseek_cfg if adversary is not None else None
+        adv_cfg = adversary_cfg_resolved if adversary is not None else None
         logger.info("→ %s on %s", method_name, cfg.display_name)
         ok, summary, path = await _run_attack(
             method_name, ATTACK_METHODS[method_name],
@@ -318,6 +328,12 @@ async def main() -> int:
         )
         logger.info("  %s", summary)
         results.append((ok, summary, path))
+
+    if not results:
+        logger.error(
+            "No smoke tests executed. Ensure at least one provider key is set for SMOKE_PLAN."
+        )
+        return 2
 
     print("\n" + "=" * 70)
     print("VALIDATION SUMMARY — smoke (per-attack target mapping)")
