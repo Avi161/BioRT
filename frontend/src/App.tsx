@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { CategoryFilter } from './components/CategoryFilter'
+import { CrescendoTraceViewer } from './components/CrescendoTraceViewer'
 import { HeatmapPlaceholder } from './components/HeatmapPlaceholder'
 import { MetricsHeader } from './components/MetricsHeader'
 import { ModelAttackTable } from './components/ModelAttackTable'
@@ -28,6 +29,8 @@ function App() {
         title="AIxBio Safeguard Dashboard"
         subtitle="Models x attacks x categories with StrongREJECT-ready scoring placeholders"
       />
+
+      <CrescendoTraceViewer />
 
       <CategoryFilter
         categories={categories}

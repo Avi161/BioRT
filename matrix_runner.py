@@ -13,9 +13,9 @@ individual prompt failures so the full matrix doesn't crash halfway through.
 from __future__ import annotations
 
 import asyncio
+import argparse
 import json
 import logging
-import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -42,7 +42,19 @@ from pyrit.prompt_target import OpenAIChatTarget
 from pyrit.score import SelfAskTrueFalseScorer, TrueFalseQuestion
 from pyrit.setup import IN_MEMORY, initialize_pyrit_async
 
-from config.models import ModelConfig, build_target, get_available_models
+from backend.crescendo_debug import (
+    DEFAULT_DEBUG_ATTACKER_PROVIDER,
+    DEFAULT_DEBUG_DEFENDER_PROVIDER,
+    DEFAULT_DEBUG_OUTPUT_DIR,
+    DEFAULT_DEBUG_PROMPT_FILES,
+    DEFAULT_FULL_BENCH_PROMPT_FILE,
+    run_crescendo_debug_smoke_test,
+)
+
+try:
+    from config.models import ModelConfig, build_target, get_available_models
+except ModuleNotFoundError:  # pragma: no cover - fallback for root-level execution.
+    from backend.config.models import ModelConfig, build_target, get_available_models
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,6 +65,9 @@ logger = logging.getLogger(__name__)
 # Retry parameters for rate-limit / transient errors
 MAX_RETRIES = 3
 BASE_BACKOFF_SECONDS = 5
+
+MAX_CRESCENDO_TURNS = 5
+MAX_CRESCENDO_BACKTRACKS = 5
 
 
 # ---------------------------------------------------------------------------
@@ -152,8 +167,8 @@ def _build_crescendo_attack(
         objective_target=target,
         attack_adversarial_config=adversarial_config,
         attack_scoring_config=scoring_config,
-        max_turns=5,
-        max_backtracks=5,
+        max_turns=MAX_CRESCENDO_TURNS,
+        max_backtracks=MAX_CRESCENDO_BACKTRACKS,
     )
 
 
@@ -178,6 +193,8 @@ class CellResult:
     status: str
     conversation_id: str | None
     elapsed_seconds: float
+    attempts_made: int = 0
+    total_retries: int = 0
 
 
 async def run_single_cell(
@@ -230,6 +247,8 @@ async def run_single_cell(
                 status=outcome,
                 conversation_id=str(result.conversation_id),
                 elapsed_seconds=elapsed,
+                attempts_made=attempt,
+                total_retries=max(attempt - 1, 0),
             )
 
         except Exception as exc:
@@ -254,6 +273,8 @@ async def run_single_cell(
                     status=f"ERROR: {exc}",
                     conversation_id=None,
                     elapsed_seconds=0.0,
+                    attempts_made=attempt,
+                    total_retries=max(attempt - 1, 0),
                 )
 
     # Unreachable, but satisfies the type checker.
@@ -265,6 +286,75 @@ async def run_single_cell(
 # ---------------------------------------------------------------------------
 
 async def main() -> None:
+    parser = argparse.ArgumentParser(description="Run AIxBio attack experiments.")
+    parser.add_argument(
+        "--crescendo-debug",
+        action="store_true",
+        help=(
+            "Run Crescendo (Kimi attacker → DeepSeek defender by default) for JSONL "
+            "traces. Without --crescendo-debug-full: one prompt per --prompt-file "
+            "(defaults: long + short smoke). With --crescendo-debug-full: every "
+            "prompt in each file (default file: BioRT-Bench long, 40 prompts)."
+        ),
+    )
+    parser.add_argument(
+        "--crescendo-debug-full",
+        action="store_true",
+        help=(
+            "With --crescendo-debug: load all prompts from each --prompt-file "
+            f"(default single file: {DEFAULT_FULL_BENCH_PROMPT_FILE}). "
+            "CrescendoAttack uses matrix_runner MAX_CRESCENDO_TURNS / MAX_CRESCENDO_BACKTRACKS."
+        ),
+    )
+    parser.add_argument(
+        "--prompt-file",
+        action="append",
+        dest="prompt_files",
+        help=(
+            "Prompt file(s) for --crescendo-debug. Repeat the flag for multiple "
+            "files. Defaults to prompts/prompts_long.json and "
+            "backend/prompts/prompts_short.json."
+        ),
+    )
+    parser.add_argument(
+        "--defender-provider",
+        default=DEFAULT_DEBUG_DEFENDER_PROVIDER,
+        help="Defender provider for --crescendo-debug (default: deepseek).",
+    )
+    parser.add_argument(
+        "--attacker-provider",
+        default=DEFAULT_DEBUG_ATTACKER_PROVIDER,
+        help="Attacker provider for --crescendo-debug (default: moonshot/kimi).",
+    )
+    parser.add_argument(
+        "--debug-output",
+        default=DEFAULT_DEBUG_OUTPUT_DIR,
+        help=(
+            "Crescendo debug output: a directory (default: results/crescendo) gets "
+            "one new .jsonl per run named by defender/attacker provider and time "
+            "— all prompts in that run are lines in the same file. A path ending in "
+            ".jsonl appends all records to that file."
+        ),
+    )
+    args = parser.parse_args()
+    if args.crescendo_debug_full and not args.crescendo_debug:
+        parser.error("--crescendo-debug-full requires --crescendo-debug")
+
+    if args.crescendo_debug:
+        if args.crescendo_debug_full:
+            prompt_files = args.prompt_files or [DEFAULT_FULL_BENCH_PROMPT_FILE]
+        else:
+            prompt_files = args.prompt_files or list(DEFAULT_DEBUG_PROMPT_FILES)
+        await run_crescendo_debug_smoke_test(
+            prompt_files=prompt_files,
+            run_single_cell_fn=run_single_cell,
+            attacker_provider=args.attacker_provider,
+            defender_provider=args.defender_provider,
+            output_path=args.debug_output,
+            load_all_prompts=bool(args.crescendo_debug_full),
+        )
+        return
+
     await initialize_pyrit_async(memory_db_type=IN_MEMORY)
 
     prompts_by_category = load_prompts()

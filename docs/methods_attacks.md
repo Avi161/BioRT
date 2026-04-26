@@ -8,7 +8,7 @@ The harness implements four jailbreak methods drawn directly from published red-
 
 **PAIR** (Prompt Automatic Iterative Refinement; Chao et al. 2023) drives the target with an adversarial LLM that iteratively rewrites its prompt to elicit a compliant response. We use PyRIT's `RedTeamingAttack` orchestrator with the standard `RTASystemPromptPaths.TEXT_GENERATION` system prompt and `max_turns=3`.
 
-**Crescendo** (Russinovich et al. 2024) is a multi-turn benign-to-harmful escalation in which the adversarial LLM begins with innocuous queries and gradually steers toward the target objective, backtracking when refused. Implemented via PyRIT's `CrescendoAttack` with `max_turns=5` and `max_backtracks=5`.
+**Crescendo** (Russinovich et al. 2024) is a multi-turn benign-to-harmful escalation in which the adversarial LLM begins with innocuous queries and gradually steers toward the target objective, backtracking when refused. Implemented via PyRIT's `CrescendoAttack` with `max_turns=5` and `max_backtracks=5` (cheaper; typical reported averages in the Crescendo paper are around 5).
 
 Both PAIR and Crescendo require an adversarial-LLM target; we currently default to Kimi (`ADVERSARY_PROVIDER=moonshot`) for cost control. The inner-loop "did the response satisfy the objective" decision is currently a `SelfAskTrueFalseScorer` placeholder; it does **not** affect headline results, which are produced by the calibrated bio-aware StrongREJECT-derived judge applied in a separate scoring pass over the stored conversations.
 
