@@ -2,64 +2,80 @@
 
 Orchestration layer for testing bio-misuse safeguards across frontier AI models. Built on [PyRIT](https://github.com/Azure/PyRIT) (Microsoft Python Risk Identification Tool).
 
+## Repository Layout
+
+- `backend/` — Python harness (models, attacks, prompts, runners, tests)
+- `frontend/` — metrics dashboard UI (React + Vite + TypeScript)
+- root docs/config — project docs, env templates, license
+
 ## Test Matrix
 
 | Dimension | Values |
 |-----------|--------|
 | **Models** | GPT-5.4, Claude Sonnet 4.6, Gemini 3 Pro, DeepSeek V4 Flash, Kimi 2.5 |
 | **Attack Methods** | Direct Request, PAIR, Crescendo, Base64 Encoding |
-| **Categories** | Synthesis, Evasion, Lab-automation, Virology |
+| **Categories** | synthesis_evasion, lab_automation_uplift, dual_use_protocol, acquisition_kyc, virology |
 
-## Quick Start
+## Quick Start (Backend)
 
 ### 1. Install
 
 ```bash
+cd backend
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r ../requirements.txt
 ```
 
 ### 2. Configure API Keys
 
 ```bash
-cp .env.example .env
+cp ../.env.example ../.env
 ```
 
-Edit `.env` and add your API keys. The runner skips any model whose key is missing, so you only need at least one key to get started.
+Edit `../.env` and add your API keys. The runner skips models whose keys are missing, so at least one key is enough to run.
 
-### 3. Run Hello World (Hour-18 Milestone)
-
-Sends 5 prompts to a single model and verifies memory logging:
+### 3. Run Hello World
 
 ```bash
+cd backend
 python hello_world.py
 ```
 
-### 4. Run the Full Matrix
-
-Iterates over all available models, attack methods, and prompt categories:
+### 4. Run Attack Smoke Validation
 
 ```bash
+cd backend
+python validate_attacks.py
+```
+
+### 5. Run the Full Matrix
+
+```bash
+cd backend
 python matrix_runner.py
+```
+
+## Frontend (Metrics UI)
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
 ## Project Structure
 
-```
-config/models.py         Model registry & PyRIT target factory
-prompts/mock_prompts.json   Placeholder prompts (2 per category)
-hello_world.py           Single-model smoke test
-matrix_runner.py         Full experiment runner
-results/                 Runtime artifacts (gitignored)
+```text
+backend/config/models.py      Model registry & target factory
+backend/attacks.py            Attack method factories
+backend/prompts/              Prompt datasets
+backend/matrix_runner.py      Full experiment runner
+backend/validate_attacks.py   Per-attack smoke runner
+backend/tests/                Backend test suite
+frontend/src/                 Metrics dashboard components
 ```
 
 ## Scoring (Phase 2)
 
-StrongREJECT scoring is not yet wired in. Integration points are marked with `# HOOK: StrongREJECT scoring` comments in `matrix_runner.py`. The scorer will evaluate final assistant responses and feed into the heatmap analysis.
-
-## Notes
-
-- **Memory:** PyRIT uses SQLite-backed in-memory storage. All conversations are queryable via `CentralMemory` during the session.
-- **Anthropic:** Claude requires a LiteLLM proxy wrapper (not yet implemented). The runner auto-skips it until configured.
-- **Rate limits:** The matrix runner retries failed calls with exponential backoff (3 attempts, 5s base).
+StrongREJECT scoring integration points are marked with `# HOOK: StrongREJECT scoring` comments in `backend/attacks.py` and `backend/matrix_runner.py`.
