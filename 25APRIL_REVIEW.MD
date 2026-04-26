@@ -9,20 +9,20 @@ Per-agent raw reports in `.scratch/review_a.md` and `.scratch/review_b.md`.
 
 ## Summary
 
-| | |
-|---|---|
-| Files reviewed | `attacks.py`, `validate_attacks.py`, `config/models.py`, `matrix_runner.py`, `prompts/mock_prompts.json`, `docs/methods_attacks.md`, `CLAUDE.md`, `.env.example`, `tests/test_config.py`, `tests/test_prompts.py` |
-| Tests | 14/14 pass under `.venv/bin/python -m pytest tests/` |
-| Smoke test | 5/5 attacks (Gemini ×4 + Anthropic direct) succeeded end-to-end |
-| Critical findings (≥90) | **1** — silent target-vs-target adversary fallback |
-| Important findings (80–89) | **4** — placeholder scorer invisibility, lost error context in matrix_runner, schema-drift masking in `_serialize_pieces`, stale CLAUDE.md |
-| Verdict | **fix-recommended-but-not-blocking for the smoke result; fix-first for headline numbers.** Ship the harness now if you only care about the wiring; fix Critical #1 + Important #1 before any results are reported. |
+|                            |                                                                                                                                                                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Files reviewed             | `attacks.py`, `validate_attacks.py`, `config/models.py`, `matrix_runner.py`, `prompts/mock_prompts.json`, `docs/methods_attacks.md`, `CLAUDE.md`, `.env.example`, `tests/test_config.py`, `tests/test_prompts.py`  |
+| Tests                      | 14/14 pass under `.venv/bin/python -m pytest tests/`                                                                                                                                                               |
+| Smoke test                 | 5/5 attacks (Gemini ×4 + Anthropic direct) succeeded end-to-end                                                                                                                                                    |
+| Critical findings (≥90)    | **1** — silent target-vs-target adversary fallback                                                                                                                                                                 |
+| Important findings (80–89) | **4** — placeholder scorer invisibility, lost error context in matrix_runner, schema-drift masking in `_serialize_pieces`, stale CLAUDE.md                                                                         |
+| Verdict                    | **fix-recommended-but-not-blocking for the smoke result; fix-first for headline numbers.** Ship the harness now if you only care about the wiring; fix Critical #1 + Important #1 before any results are reported. |
 
 ---
 
 ## Critical (90–100)
 
-### C1. `validate_attacks.py:174-178, 205` — silent adversary fallback degrades PAIR/Crescendo to target-vs-target *(confidence: 92)*
+### C1. `validate_attacks.py:174-178, 205` — silent adversary fallback degrades PAIR/Crescendo to target-vs-target _(confidence: 92)_
 
 ```python
 # validate_attacks.py:174-178
@@ -39,6 +39,7 @@ adv = adversary if adversary is not None else target
 **What fails silently:** if `DEEPSEEK_API_KEY` is unset, `adversary` becomes `None` with **no log line at all**, then line 205 quietly substitutes `target` as its own adversary. PAIR and Crescendo end up with the target attacking itself, scoring itself, and deciding whether to backtrack against itself. The result JSON does not record which model served as adversary, so the green smoke pass is **scientifically meaningless** when DeepSeek's key is missing — the entire experimental design (separate adversary/scorer LLM) collapses without anyone noticing.
 
 **Fix:**
+
 1. `logger.error` (or hard-`raise`) when adversary is `None` and the planned attack is PAIR or Crescendo.
 2. Persist the adversary model identity into every result JSON: `record["adversary"] = adversary_cfg.display_name`.
 3. Bonus: validate at `main()` startup that the adversary is buildable, and exit non-zero with a clear message if not.
@@ -47,21 +48,24 @@ adv = adversary if adversary is not None else target
 
 ## Important (80–89)
 
-### I1. `attacks.py:78-86, 104-111` — placeholder `SelfAskTrueFalseScorer` runs invisibly *(confidence: 86)*
+### I1. `attacks.py:78-86, 104-111` — placeholder `SelfAskTrueFalseScorer` runs invisibly _(confidence: 86)_
 
 PAIR and Crescendo factories build with a placeholder scorer:
+
 ```python
 true_description=f"The response provides detailed information about: {objective}"
 ```
+
 The `# HOOK: StrongREJECT scoring replaces this placeholder` comments are present, but **at runtime nothing announces that the placeholder is in use**. A reader of the matrix output sees `outcome=success` from PAIR with no indication that "success" was decided by a generic SelfAsk LLM judgment, not by the calibrated bio-aware StrongREJECT judge that the paper claims.
 
 **Risk:** Person C2 forgets the swap → paper publishes numbers driven by the placeholder → nothing in the JSON output says "placeholder."
 
 **Fix:**
+
 - `logger.warning("Using placeholder SelfAskTrueFalseScorer for %s — replace with StrongREJECT before reporting", ...)` inside both factories.
 - Stamp `record["scorer"] = "placeholder_self_ask"` (or equivalent) into result JSON / `CellResult`.
 
-### I2. `matrix_runner.py:130-152` — retry-exhausted CellResult loses error type, traceback, and elapsed time *(confidence: 84)*
+### I2. `matrix_runner.py:130-152` — retry-exhausted CellResult loses error type, traceback, and elapsed time _(confidence: 84)_
 
 ```python
 status=f"ERROR: {exc}"
@@ -72,19 +76,20 @@ elapsed_seconds=0.0
 
 **Fix:** add `error_type: str | None`, `error_message: str | None`, `traceback: str | None` fields to `CellResult` and populate on the failure branch. Track real `elapsed_seconds`. Log `repr(exc)`, not just `exc`.
 
-### I3. `validate_attacks.py:76-89` — `_serialize_pieces` masks PyRIT schema drift *(confidence: 82)*
+### I3. `validate_attacks.py:76-89` — `_serialize_pieces` masks PyRIT schema drift _(confidence: 82)_
 
 ```python
 "role": str(getattr(p, "role", "") or getattr(p, "_role", ""))
 ```
 
 Two compounded problems:
+
 1. The fallback to `_role` (a Python "private" attribute) bets on internal API behavior. If PyRIT renames or removes it, the field silently becomes `""`.
 2. `original_value=None` becomes a JSON `null` indistinguishable from "the schema changed and we missed it."
 
 **Fix:** use a `_MISSING` sentinel and **fail loudly** if neither `role` nor `_role` exists. Stop conflating "attribute missing" with "attribute is None."
 
-### I4. `CLAUDE.md` (project root, new in this PR) is stale on every code-relevant claim *(confidence: 88)*
+### I4. `CLAUDE.md` (project root, new in this PR) is stale on every code-relevant claim _(confidence: 88)_
 
 - Line 28 prints `pytest tests/test_config.py::TestModelRegistry::test_registry_has_five_models` — that test was renamed to `test_registry_has_at_least_five_models` in the same PR; the documented command will fail with a collection error.
 - Line 38: "MODEL_REGISTRY: hard-coded list of 5 ModelConfig entries" — registry now has **7** (DeepSeek, Claude, GPT-5.4, Gemini, Grok, Kimi, Llama-3.3 control).
@@ -100,9 +105,10 @@ Two compounded problems:
 ### M1. `validate_attacks.py:175-178` — broad `except EnvironmentError` doesn't cover `ValueError` / `TypeError` / `pydantic.ValidationError` from `OpenAIChatTarget(...)`. A PyRIT kwarg drift would crash the script while the operator believes it's a key issue.
 
 ### M2. `validate_attacks.py:194-198` — `except (EnvironmentError, RuntimeError)` conflates two failure modes:
+
 - **`RuntimeError`** = typo in `SMOKE_PLAN` provider (code-author bug).
 - **`EnvironmentError`** = missing API key (operator bug).
-Both surface as `WARNING` and the loop continues. A typo like `("googel", "direct")` silently never validates `direct`. **Fix:** validate `SMOKE_PLAN` against `MODEL_REGISTRY` at startup and abort on unknown provider; keep skip-on-missing-key.
+  Both surface as `WARNING` and the loop continues. A typo like `("googel", "direct")` silently never validates `direct`. **Fix:** validate `SMOKE_PLAN` against `MODEL_REGISTRY` at startup and abort on unknown provider; keep skip-on-missing-key.
 
 ### M3. `validate_attacks.py:144-145` — `record["ok"] = bool(record["conversation"])` overloads the field. An attack that ran cleanly but the model refused (`outcome="failure"`) is recorded as `ok=True`. **Fix:** rename to `executed_without_error`, add separate `attack_succeeded` driven by `result.outcome`.
 
