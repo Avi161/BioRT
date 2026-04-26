@@ -4,6 +4,7 @@
 
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *$py.class
 *.egg-info/
@@ -18,6 +19,9 @@ env/
 results/
 *.db
 *.duckdb
+
+# Local scratch space (review agent intermediates, working notes)
+.scratch/
 
 # IDE
 .vscode/
