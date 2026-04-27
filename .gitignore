@@ -17,6 +17,7 @@ env/
 
 # Results & data (local experiment artifacts)
 results/
+eval_results/
 *.db
 *.duckdb
 

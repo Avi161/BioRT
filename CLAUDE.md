@@ -57,7 +57,7 @@ Three layers, all gluing PyRIT primitives together:
 
 **4. Memory layer — PyRIT `CentralMemory`**
 
-- Both runners call `initialize_pyrit_async(memory_db_type=IN_MEMORY)`. Despite the spec calling for DuckDB persistence, `IN_MEMORY` is currently SQLite under the hood and **does not persist to disk** — switch to `DUCK_DB` (and supply a path) when results need to outlive the process. `backend/results/` is gitignored for the JSON outputs of `backend/validate_attacks.py`.
+- Both runners call `initialize_pyrit_async(memory_db_type=IN_MEMORY)`. Despite the spec calling for DuckDB persistence, `IN_MEMORY` is currently SQLite under the hood and **does not persist to disk** — switch to `DUCK_DB` (and supply a path) when results need to outlive the process. `results/` (repo root) is gitignored for the JSON outputs of `backend/validate_attacks.py`. `eval_results/` (repo root) holds judge outputs from `backend/score_results.py`.
 - Conversations are retrieved via `CentralMemory.get_memory_instance().get_message_pieces(conversation_id=...)`.
 
 ## Evaluation Frameworks
