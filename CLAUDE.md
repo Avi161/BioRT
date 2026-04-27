@@ -34,6 +34,25 @@ pytest tests/test_config.py::TestModelRegistry::test_registry_has_at_least_five_
 
 Both runner scripts call `load_dotenv()` at import time and skip any model whose API key env var is empty — at least one key is enough to run.
 
+### Crescendo debug: resume progress
+
+Partial JSONL from a stopped `--crescendo-debug` run is **not** lost: each line is a finished cell. To **continue** without re-running completed prompts, use **`--crescendo-resume-from-jsonl PATH`** and keep the **same** pairing and prompt source as the original run (e.g. same `--crescendo-kimi-attacks-anthropic` and same `--prompt-file` or `--crescendo-bench`).
+
+**Append to the same artifact** (recommended): set **`--debug-output`** to the **exact** `.jsonl` file (not just the `results/crescendo/` directory), and use that same path for **`--crescendo-resume-from-jsonl`**. The runner reads `metadata.prompt_id` from the file, skips those IDs, and runs the remaining BioRT prompts in file order. Implementation: `load_completed_prompt_ids_from_jsonl` and `skip_prompt_ids` in `backend/crescendo_debug.py`.
+
+**Example (Kimi attacks, Anthropic defends, long bench, append + resume from repo root):**
+
+```bash
+python matrix_runner.py \
+  --crescendo-debug --crescendo-debug-full \
+  --crescendo-kimi-attacks-anthropic \
+  --prompt-file prompts/prompts_long.json \
+  --debug-output results/crescendo/crescendo_defender-anthropic_attacker-moonshot_prompts_long_<STAMP>.jsonl \
+  --crescendo-resume-from-jsonl results/crescendo/crescendo_defender-anthropic_attacker-moonshot_prompts_long_<STAMP>.jsonl
+```
+
+If every `prompt_id` is already in the file, the run has nothing left to do. If a prompt was in progress and never got a line, that `prompt_id` is not skipped and will run on resume.
+
 ## Architecture
 
 Three layers, all gluing PyRIT primitives together:
@@ -98,5 +117,5 @@ Two academic frameworks inform the scoring and experimental design:
 - **Add a model:** append a `ModelConfig` to `MODEL_REGISTRY`, add the env var to `.env.example`, and confirm `backend/tests/test_config.py::test_registry_has_at_least_five_models` still passes (it asserts `>= 5`, so adding more is free). If the provider isn't OpenAI-compatible, raise `NotImplementedError` in `build_target` so the runners can skip it.
 - **Add an attack method:** write a `_build_<name>_attack(target, adversary, objective)` function in `backend/attacks.py`, register it in `ATTACK_METHODS`. If it uses a placeholder scorer, add it to `PLACEHOLDER_SCORER_METHODS`. If it requires a separate adversary, add it to `METHODS_REQUIRING_ADVERSARY`.
 - **Async everywhere.** All PyRIT entry points are `async`; both scripts use `asyncio.run(main())`. Don't mix sync PyRIT calls into the async path.
-- **Token cost awareness.** PAIR uses ~2-3x tokens per cell (adversary + target + scorer). Crescendo uses 5+ turns. Adversary defaults to Kimi via `ADVERSARY_PROVIDER=moonshot`; keep it explicit in `.env` for reproducibility.
+- **Token cost awareness.** PAIR uses ~2-3x tokens per cell (adversary + target + scorer). Crescendo uses 5+ turns (capped at 5/5, aligned with common paper reporting). Adversary defaults to Kimi via `ADVERSARY_PROVIDER=moonshot`; keep it explicit in `.env` for reproducibility.
 - Python 3.10+ (`from __future__ import annotations` + PEP 604 union syntax used throughout).

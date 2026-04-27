@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -72,3 +72,18 @@ class TestBuildTarget:
         when used as the adversary/scorer LLM."""
         deepseek_cfg = next(c for c in MODEL_REGISTRY if c.provider == "deepseek")
         assert deepseek_cfg.temperature == 0.0
+
+    def test_anthropic_uses_openai_compat_subclass(self) -> None:
+        """Claude uses a target that maps json_object -> json_schema for the compat API."""
+        from config.anthropic_openai_chat_target import AnthropicOpenAIChatTarget
+
+        anth = next(c for c in MODEL_REGISTRY if c.provider == "anthropic")
+        with (
+            patch.dict(os.environ, {anth.api_key_env: "sk-test"}),
+            patch(
+                "pyrit.memory.central_memory.CentralMemory.get_memory_instance",
+                return_value=MagicMock(),
+            ),
+        ):
+            target = build_target(anth)
+        assert isinstance(target, AnthropicOpenAIChatTarget)
