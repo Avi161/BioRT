@@ -3,7 +3,8 @@
 Centralizes model configurations so hello_world.py, matrix_runner.py, and
 validate_attacks.py share the same definitions. Every supported provider
 exposes (or can be wrapped into) an OpenAI-compatible chat/completions
-endpoint, so a single OpenAIChatTarget class works for all of them.
+endpoint, so ``OpenAIChatTarget`` works for all of them, except a small
+Anthropic-specific subclass.
 
 Anthropic's OpenAI-compatible base URL (https://api.anthropic.com/v1/) is
 used for Claude — see Anthropic's "OpenAI SDK compatibility" documentation.
@@ -17,6 +18,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pyrit.prompt_target import OpenAIChatTarget
+
+from .anthropic_openai_chat_target import AnthropicOpenAIChatTarget
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +157,10 @@ def build_target(
             Together, xAI, Moonshot, and Gemini's compat layers only honor
             the legacy name — newer-name fields are silently dropped.
 
+    For ``provider == "anthropic"``, returns :class:`AnthropicOpenAIChatTarget`, which
+    rewrites OpenAI ``json_object`` response_format to ``json_schema`` (Anthropic
+    compatibility requirement) while keeping PyRIT's JSON / Crescendo behavior.
+
     Raises:
         EnvironmentError: If the required API key is missing.
     """
@@ -175,4 +182,6 @@ def build_target(
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
 
+    if config.provider == "anthropic":
+        return AnthropicOpenAIChatTarget(**kwargs)
     return OpenAIChatTarget(**kwargs)

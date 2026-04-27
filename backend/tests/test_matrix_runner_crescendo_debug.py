@@ -2,9 +2,53 @@
 
 from __future__ import annotations
 
+import json
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 
 from backend import crescendo_debug
+
+
+def test_default_debug_output_dir_is_single_repo_path() -> None:
+    """Crescendo JSONL is written under the repo, independent of process cwd."""
+    p = Path(crescendo_debug.DEFAULT_DEBUG_OUTPUT_DIR)
+    assert p.is_absolute()
+    assert p.name == "crescendo" and p.parent.name == "results"
+
+
+def test_load_completed_prompt_ids_from_jsonl() -> None:
+    """Resume helper collects prompt_id from each line's metadata."""
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Path(tmp) / "partial.jsonl"
+        line1 = {
+            "metadata": {"prompt_id": "P1", "category": "synthesis_evasion"},
+        }
+        line2 = {
+            "metadata": {"prompt_id": "P2", "category": "synthesis_evasion"},
+        }
+        p.write_text(
+            json.dumps(line1) + "\n" + json.dumps(line2) + "\n",
+            encoding="utf-8",
+        )
+        got = crescendo_debug.load_completed_prompt_ids_from_jsonl(str(p))
+        assert got == {"P1", "P2"}
+
+
+def test_run_crescendo_moonshot_as_both_roles_is_exported() -> None:
+    assert callable(crescendo_debug.run_crescendo_moonshot_as_both_roles)
+    assert crescendo_debug.run_crescendo_moonshot_as_both_roles.__doc__
+
+
+def test_run_crescendo_provider_modes_exported() -> None:
+    """Exported provider entrypoints include Kimi->Claude plus legacy modes."""
+    assert callable(crescendo_debug.run_crescendo_anthropic_as_both_roles)
+    assert callable(crescendo_debug.run_crescendo_openai_as_both_roles)
+    assert callable(crescendo_debug.run_crescendo_kimi_attacks_anthropic)
+    assert crescendo_debug.DEFAULT_DEBUG_ATTACKER_PROVIDER == "moonshot"
+    assert "moonshot" in crescendo_debug.run_crescendo_anthropic_as_both_roles.__doc__.lower()
+    assert "moonshot" in crescendo_debug.run_crescendo_openai_as_both_roles.__doc__.lower()
+    assert "anthropic" in crescendo_debug.run_crescendo_kimi_attacks_anthropic.__doc__.lower()
 
 
 def test_default_debug_prompt_files_are_expected() -> None:
@@ -12,6 +56,16 @@ def test_default_debug_prompt_files_are_expected() -> None:
         "prompts/prompts_long.json",
         "backend/prompts/prompts_short.json",
     )
+
+
+def test_default_short_bench_path_matches_long_count() -> None:
+    """Short and long benchmark files should list the same number of prompts."""
+    assert crescendo_debug.DEFAULT_SHORT_BENCH_PROMPT_FILE.endswith("prompts_short.json")
+    short_cases = crescendo_debug.load_all_prompt_cases(
+        crescendo_debug.DEFAULT_SHORT_BENCH_PROMPT_FILE
+    )
+    long_cases = crescendo_debug.load_all_prompt_cases("prompts/prompts_long.json")
+    assert len(short_cases) == len(long_cases) == 40
 
 
 def test_load_all_prompt_cases_bior_bench_is_40() -> None:
@@ -131,7 +185,7 @@ def test_split_conversations_drops_scorer_user_messages() -> None:
 
 
 def test_defender_refusal_increments_summary() -> None:
-    assert crescendo_debug._is_defender_refusal("I can't help with that request.") is True
+    assert crescendo_debug._is_defender_refusal_prose("I can't help with that request.") is True
     transcript = [
         {
             "role": "user",
@@ -144,6 +198,33 @@ def test_defender_refusal_increments_summary() -> None:
             "original_value": "Sorry, I can't help with that.",
             "converted_value": "Sorry, I can't help with that.",
             "data_type": "text",
+        },
+    ]
+    _, _, summary = crescendo_debug._split_conversations(transcript)
+    assert summary["defender_refusals"] == 1
+
+
+def test_defender_content_filter_counts_as_refusal() -> None:
+    """API policy blocks (empty content + content_filter) are counted for Anthropic etc."""
+    blob = (
+        '{"choices":[{"finish_reason":"content_filter",'
+        '"message":{"content":""}}]}'
+    )
+    # Structured payload (and data_type error) both classify as refusal for metrics.
+    assert crescendo_debug._defender_turn_counts_as_refusal(blob, "text") is True
+    assert crescendo_debug._defender_turn_counts_as_refusal(blob, "error") is True
+    transcript = [
+        {
+            "role": "user",
+            "original_value": "q1",
+            "converted_value": "q1",
+            "data_type": "text",
+        },
+        {
+            "role": "assistant",
+            "original_value": blob,
+            "converted_value": blob,
+            "data_type": "error",
         },
     ]
     _, _, summary = crescendo_debug._split_conversations(transcript)

@@ -34,6 +34,25 @@ pytest tests/test_config.py::TestModelRegistry::test_registry_has_at_least_five_
 
 Both runner scripts call `load_dotenv()` at import time and skip any model whose API key env var is empty — at least one key is enough to run.
 
+### Crescendo debug: resume progress
+
+Partial JSONL from a stopped `--crescendo-debug` run is **not** lost: each line is a finished cell. To **continue** without re-running completed prompts, use **`--crescendo-resume-from-jsonl PATH`** and keep the **same** pairing and prompt source as the original run (e.g. same `--crescendo-kimi-attacks-anthropic` and same `--prompt-file` or `--crescendo-bench`).
+
+**Append to the same artifact** (recommended): set **`--debug-output`** to the **exact** `.jsonl` file (not just the `results/crescendo/` directory), and use that same path for **`--crescendo-resume-from-jsonl`**. The runner reads `metadata.prompt_id` from the file, skips those IDs, and runs the remaining BioRT prompts in file order. Implementation: `load_completed_prompt_ids_from_jsonl` and `skip_prompt_ids` in `backend/crescendo_debug.py`.
+
+**Example (Kimi attacks, Anthropic defends, long bench, append + resume from repo root):**
+
+```bash
+python matrix_runner.py \
+  --crescendo-debug --crescendo-debug-full \
+  --crescendo-kimi-attacks-anthropic \
+  --prompt-file prompts/prompts_long.json \
+  --debug-output results/crescendo/crescendo_defender-anthropic_attacker-moonshot_prompts_long_<STAMP>.jsonl \
+  --crescendo-resume-from-jsonl results/crescendo/crescendo_defender-anthropic_attacker-moonshot_prompts_long_<STAMP>.jsonl
+```
+
+If every `prompt_id` is already in the file, the run has nothing left to do. If a prompt was in progress and never got a line, that `prompt_id` is not skipped and will run on resume.
+
 ## Architecture
 
 Three layers, all gluing PyRIT primitives together:

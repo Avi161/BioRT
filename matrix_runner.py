@@ -48,7 +48,13 @@ from backend.crescendo_debug import (
     DEFAULT_DEBUG_OUTPUT_DIR,
     DEFAULT_DEBUG_PROMPT_FILES,
     DEFAULT_FULL_BENCH_PROMPT_FILE,
+    DEFAULT_SHORT_BENCH_PROMPT_FILE,
+    load_completed_prompt_ids_from_jsonl,
+    run_crescendo_anthropic_as_both_roles,
     run_crescendo_debug_smoke_test,
+    run_crescendo_kimi_attacks_anthropic,
+    run_crescendo_moonshot_as_both_roles,
+    run_crescendo_openai_as_both_roles,
 )
 
 try:
@@ -302,8 +308,71 @@ async def main() -> None:
         action="store_true",
         help=(
             "With --crescendo-debug: load all prompts from each --prompt-file "
-            f"(default single file: {DEFAULT_FULL_BENCH_PROMPT_FILE}). "
+            f"(if omitted: see --crescendo-bench, defaulting to long: "
+            f"{DEFAULT_FULL_BENCH_PROMPT_FILE}). "
             "CrescendoAttack uses matrix_runner MAX_CRESCENDO_TURNS / MAX_CRESCENDO_BACKTRACKS."
+        ),
+    )
+    parser.add_argument(
+        "--crescendo-bench",
+        choices=["long", "short"],
+        default="long",
+        help=(
+            "With --crescendo-debug-full and no --prompt-file: use the full BioRT long (40) "
+            f"or short (40) file ({DEFAULT_SHORT_BENCH_PROMPT_FILE}). Default: long. "
+            "Ignored if --prompt-file is set or if --crescendo-debug-full is not used."
+        ),
+    )
+    parser.add_argument(
+        "--crescendo-moonshot-both",
+        action="store_true",
+        help=(
+            "With --crescendo-debug: Kimi (moonshot) for both Crescendo adversary and "
+            "target (two clients); adversarial red-team = attacker in JSONL. "
+            "With --crescendo-debug-full and no --prompt-file, add --crescendo-bench short "
+            "for the 40-prompt short bench. Writes "
+            "crescendo_defender-moonshot_attacker-moonshot_*.jsonl."
+        ),
+    )
+    parser.add_argument(
+        "--crescendo-anthropic-both",
+        action="store_true",
+        help=(
+            "With --crescendo-debug: Claude (anthropic) attacks, Kimi (moonshot) defends "
+            "(CLI name is legacy). At most one of --crescendo-moonshot-both, "
+            "--crescendo-anthropic-both, --crescendo-openai-both. "
+            "Output: crescendo_defender-moonshot_attacker-anthropic_*.jsonl."
+        ),
+    )
+    parser.add_argument(
+        "--crescendo-openai-both",
+        action="store_true",
+        dest="crescendo_kimi_vs_openai",
+        help=(
+            "With --crescendo-debug: Kimi (moonshot) attacks, OpenAI (GPT) defends. "
+            "Same as --crescendo-kimi-attacks-openai. "
+            "Output: crescendo_defender-openai_attacker-moonshot_*.jsonl."
+        ),
+    )
+    parser.add_argument(
+        "--crescendo-kimi-attacks-openai",
+        action="store_true",
+        dest="crescendo_kimi_vs_openai",
+        help=(
+            "With --crescendo-debug: Kimi (moonshot) is always the Crescendo adversary; "
+            "OpenAI is the target (defender). JSONL: attacker_provider=moonshot, "
+            "defender_provider=openai."
+        ),
+    )
+    parser.add_argument(
+        "--crescendo-kimi-attacks-anthropic",
+        action="store_true",
+        help=(
+            "With --crescendo-debug: Kimi (moonshot) attacks, Claude (anthropic) defends; "
+            "JSONL metadata.attacker_provider is always moonshot. "
+            "With --crescendo-debug-full and no --prompt-file, use --crescendo-bench short "
+            "to sweep the 40-prompt short bench. "
+            "Output: crescendo_defender-anthropic_attacker-moonshot_*.jsonl."
         ),
     )
     parser.add_argument(
@@ -330,29 +399,110 @@ async def main() -> None:
         "--debug-output",
         default=DEFAULT_DEBUG_OUTPUT_DIR,
         help=(
-            "Crescendo debug output: a directory (default: results/crescendo) gets "
-            "one new .jsonl per run named by defender/attacker provider and time "
-            "— all prompts in that run are lines in the same file. A path ending in "
-            ".jsonl appends all records to that file."
+            "Crescendo debug output directory or a single .jsonl path. Relative paths "
+            "are resolved from the project root (not the shell cwd). One run always "
+            "produces a single new .jsonl (default: <repo>/results/crescendo/...jsonl; "
+            "a path ending in .jsonl writes all lines to that file only)."
+        ),
+    )
+    parser.add_argument(
+        "--crescendo-resume-from-jsonl",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Path to a partial Crescendo .jsonl from a stopped run. Skips any "
+            "metadata.prompt_id already present, runs only the rest, and should be "
+            "used with the same --prompt-file / --crescendo-bench as the original. "
+            "To append to the same artifact, set --debug-output to that exact .jsonl "
+            "file (otherwise a new timestamped file is created under a directory)."
         ),
     )
     args = parser.parse_args()
     if args.crescendo_debug_full and not args.crescendo_debug:
         parser.error("--crescendo-debug-full requires --crescendo-debug")
+    if args.crescendo_resume_from_jsonl and not args.crescendo_debug:
+        parser.error("--crescendo-resume-from-jsonl requires --crescendo-debug")
+    for _flag, _name in (
+        (args.crescendo_moonshot_both, "--crescendo-moonshot-both"),
+        (args.crescendo_anthropic_both, "--crescendo-anthropic-both"),
+        (args.crescendo_kimi_vs_openai, "--crescendo-openai-both or --crescendo-kimi-attacks-openai"),
+        (args.crescendo_kimi_attacks_anthropic, "--crescendo-kimi-attacks-anthropic"),
+    ):
+        if _flag and not args.crescendo_debug:
+            parser.error("%s requires --crescendo-debug" % _name)
+    _selfplay_both = (
+        int(bool(args.crescendo_moonshot_both))
+        + int(bool(args.crescendo_anthropic_both))
+        + int(bool(args.crescendo_kimi_vs_openai))
+        + int(bool(args.crescendo_kimi_attacks_anthropic))
+    )
+    if _selfplay_both > 1:
+        parser.error(
+            "use at most one of --crescendo-moonshot-both, "
+            "--crescendo-anthropic-both, --crescendo-openai-both / "
+            "--crescendo-kimi-attacks-openai, --crescendo-kimi-attacks-anthropic"
+        )
 
     if args.crescendo_debug:
-        if args.crescendo_debug_full:
-            prompt_files = args.prompt_files or [DEFAULT_FULL_BENCH_PROMPT_FILE]
+        if args.prompt_files:
+            prompt_files = args.prompt_files
+        elif args.crescendo_debug_full:
+            prompt_files = (
+                [DEFAULT_SHORT_BENCH_PROMPT_FILE]
+                if args.crescendo_bench == "short"
+                else [DEFAULT_FULL_BENCH_PROMPT_FILE]
+            )
+        elif args.crescendo_bench == "short":
+            prompt_files = [DEFAULT_SHORT_BENCH_PROMPT_FILE]
         else:
-            prompt_files = args.prompt_files or list(DEFAULT_DEBUG_PROMPT_FILES)
-        await run_crescendo_debug_smoke_test(
-            prompt_files=prompt_files,
-            run_single_cell_fn=run_single_cell,
-            attacker_provider=args.attacker_provider,
-            defender_provider=args.defender_provider,
-            output_path=args.debug_output,
-            load_all_prompts=bool(args.crescendo_debug_full),
-        )
+            prompt_files = list(DEFAULT_DEBUG_PROMPT_FILES)
+        resume_skip: set[str] | None = None
+        if args.crescendo_resume_from_jsonl:
+            resume_skip = load_completed_prompt_ids_from_jsonl(
+                args.crescendo_resume_from_jsonl
+            )
+        if args.crescendo_moonshot_both:
+            await run_crescendo_moonshot_as_both_roles(
+                prompt_files=prompt_files,
+                run_single_cell_fn=run_single_cell,
+                output_path=args.debug_output,
+                load_all_prompts=bool(args.crescendo_debug_full),
+                skip_prompt_ids=resume_skip,
+            )
+        elif args.crescendo_anthropic_both:
+            await run_crescendo_anthropic_as_both_roles(
+                prompt_files=prompt_files,
+                run_single_cell_fn=run_single_cell,
+                output_path=args.debug_output,
+                load_all_prompts=bool(args.crescendo_debug_full),
+                skip_prompt_ids=resume_skip,
+            )
+        elif args.crescendo_kimi_vs_openai:
+            await run_crescendo_openai_as_both_roles(
+                prompt_files=prompt_files,
+                run_single_cell_fn=run_single_cell,
+                output_path=args.debug_output,
+                load_all_prompts=bool(args.crescendo_debug_full),
+                skip_prompt_ids=resume_skip,
+            )
+        elif args.crescendo_kimi_attacks_anthropic:
+            await run_crescendo_kimi_attacks_anthropic(
+                prompt_files=prompt_files,
+                run_single_cell_fn=run_single_cell,
+                output_path=args.debug_output,
+                load_all_prompts=bool(args.crescendo_debug_full),
+                skip_prompt_ids=resume_skip,
+            )
+        else:
+            await run_crescendo_debug_smoke_test(
+                prompt_files=prompt_files,
+                run_single_cell_fn=run_single_cell,
+                attacker_provider=args.attacker_provider,
+                defender_provider=args.defender_provider,
+                output_path=args.debug_output,
+                load_all_prompts=bool(args.crescendo_debug_full),
+                skip_prompt_ids=resume_skip,
+            )
         return
 
     await initialize_pyrit_async(memory_db_type=IN_MEMORY)
