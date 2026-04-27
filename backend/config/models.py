@@ -105,6 +105,7 @@ MODEL_REGISTRY: list[ModelConfig] = [
         endpoint="https://api.moonshot.ai/v1",
         api_key_env="MOONSHOT_API_KEY",
         model_name="kimi-k2.5",
+        victim_max_tokens=2048,
         role="frontier_supplementary",
     ),
     # Open-weight control row for the paper's Discussion ablation.

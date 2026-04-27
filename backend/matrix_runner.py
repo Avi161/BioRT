@@ -46,6 +46,9 @@ python matrix_runner.py
 # 5. COMBINED — one model + one method + N prompts (typical iteration loop)
 python matrix_runner.py --model claude --method direct --max-prompts 1 --prompt-file prompts/dummy_prompts.json
 
+# 5. COMBINED — one model + one method + (typical iteration loop)
+python matrix_runner.py --model kimi --method direct --prompt-file prompts/prompts_short.json
+
 # 6. ADVERSARY OVERRIDE (PAIR / Crescendo's red-teaming LLM; default: moonshot)
 ADVERSARY_PROVIDER=deepseek python matrix_runner.py --method pair
 
@@ -119,7 +122,7 @@ BASE_BACKOFF_SECONDS = 5
 assert MAX_RETRIES >= 1, "MAX_RETRIES must be ≥ 1 to guarantee at least one attempt per cell."
 
 # Default cap for victim completion tokens (HarmBench: 512). Per-model
-# overrides live in ``ModelConfig.victim_max_tokens`` (e.g. Gemini 2048).
+# overrides live in ``ModelConfig.victim_max_tokens`` (e.g. Kimi 2048, Gemini 2048).
 # HarmBench reports that varying this can shift ASR by up to 30%, so do not
 # lower without recording the change in the run metadata. The adversary
 # target (PAIR/Crescendo) is intentionally built without this cap — it needs
