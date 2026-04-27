@@ -20,6 +20,9 @@ results/
 *.db
 *.duckdb
 
+# Bio-misuse prompt datasets — kept out of public main; tracked on feature branches only
+backend/prompts/
+
 # Local scratch space (review agent intermediates, working notes)
 .scratch/
 
