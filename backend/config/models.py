@@ -36,6 +36,10 @@ class ModelConfig:
     # suppress chain-of-thought output that inflates cost and confuses parsers.
     temperature: float | None = None
     extra_body: dict[str, Any] | None = field(default=None)
+    # Cap on completion tokens. None = provider default (no cap from our side).
+    # Registry rows leave this None; the judge pipeline overrides per-call via
+    # dataclasses.replace so the attack pipeline is never affected.
+    max_completion_tokens: int | None = None
     # Role hints — informational only, used by the report writer to label rows.
     # "frontier_closed" | "frontier_supplementary" | "open_weight_control"
     role: str = "frontier_closed"
@@ -148,18 +152,19 @@ def build_target(
     the ModelConfig are forwarded only when set.
 
     Args:
-        config: Model registry row.
-        max_tokens: Optional response token cap. matrix_runner.py sets this
-            on victim targets so output stays bounded; adversary targets are
-            intentionally built without a cap. We use ``max_tokens`` (the
-            legacy OpenAI field) rather than ``max_completion_tokens`` (the
-            newer o-series field) because DeepSeek, Anthropic-compat,
-            Together, xAI, Moonshot, and Gemini's compat layers only honor
-            the legacy name — newer-name fields are silently dropped.
+        config: Model registry row. ``max_completion_tokens`` on the config is
+            used by the judge pipeline (``score_results``) via
+            ``dataclasses.replace``; registry rows keep it ``None`` so normal
+            attacks are unaffected.
+        max_tokens: Optional response token cap. When set (e.g. by
+            ``matrix_runner`` for victim targets), it takes precedence over
+            ``config.max_completion_tokens`` and is sent as ``max_tokens`` (the
+            legacy field many compat providers honor). When this argument is
+            omitted and ``config.max_completion_tokens`` is set, that value is
+            forwarded as ``max_completion_tokens`` (OpenAI / o-series style).
 
-    For ``provider == "anthropic"``, returns :class:`AnthropicOpenAIChatTarget`, which
-    rewrites OpenAI ``json_object`` response_format to ``json_schema`` (Anthropic
-    compatibility requirement) while keeping PyRIT's JSON / Crescendo behavior.
+    For ``provider == "anthropic"``, returns :class:`AnthropicOpenAIChatTarget`
+    (OpenAI-compatible PyRIT target for Anthropic’s compat endpoint).
 
     Raises:
         EnvironmentError: If the required API key is missing.
@@ -181,6 +186,8 @@ def build_target(
         kwargs["extra_body_parameters"] = config.extra_body
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
+    elif config.max_completion_tokens is not None:
+        kwargs["max_completion_tokens"] = config.max_completion_tokens
 
     if config.provider == "anthropic":
         return AnthropicOpenAIChatTarget(**kwargs)

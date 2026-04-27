@@ -14,6 +14,6 @@ Both PAIR and Crescendo require an adversarial-LLM target; we currently default 
 
 ## References
 
-- Chao, P., Robey, A., Dobriban, E., Hassani, H., Pappas, G. J., & Wong, E. (2023). *Jailbreaking Black Box Large Language Models in Twenty Queries.* arXiv:2310.08419.
-- Russinovich, M., Salem, A., & Eldan, R. (2024). *Great, Now Write an Article About That: The Crescendo Multi-Turn LLM Jailbreak Attack.* arXiv:2404.01833.
-- Microsoft. *Python Risk Identification Tool (PyRIT)*, v0.13. https://github.com/Azure/PyRIT.
+- Chao, P., Robey, A., Dobriban, E., Hassani, H., Pappas, G. J., & Wong, E. (2023). _Jailbreaking Black Box Large Language Models in Twenty Queries._ arXiv:2310.08419.
+- Russinovich, M., Salem, A., & Eldan, R. (2024). _Great, Now Write an Article About That: The Crescendo Multi-Turn LLM Jailbreak Attack._ arXiv:2404.01833.
+- Microsoft. _Python Risk Identification Tool (PyRIT)_, v0.13. https://github.com/Azure/PyRIT.
