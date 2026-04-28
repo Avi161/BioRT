@@ -47,7 +47,7 @@ python matrix_runner.py
 python matrix_runner.py --model claude --method direct --max-prompts 1 --prompt-file prompts/dummy_prompts.json
 
 # 5. COMBINED — one model + one method + (typical iteration loop)
-python matrix_runner.py --model kimi --method direct --prompt-file prompts/prompts_short.json
+python matrix_runner.py --model kimi --method pair --prompt-file prompts/prompts_short.json
 
 # 6. ADVERSARY OVERRIDE (PAIR / Crescendo's red-teaming LLM; default: moonshot)
 ADVERSARY_PROVIDER=deepseek python matrix_runner.py --method pair
