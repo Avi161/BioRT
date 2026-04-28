@@ -36,9 +36,16 @@ class ModelConfig:
     # suppress chain-of-thought output that inflates cost and confuses parsers.
     temperature: float | None = None
     extra_body: dict[str, Any] | None = field(default=None)
-    # Cap on completion tokens. None = provider default (no cap from our side).
-    # Registry rows leave this None; the judge pipeline overrides per-call via
-    # dataclasses.replace so the attack pipeline is never affected.
+    # OpenAI reasoning models (e.g. gpt-5.4) return 400 if the request includes
+    # ``max_tokens``; PyRIT must send ``max_completion_tokens`` instead. All other
+    # registered compat endpoints expect the legacy field.
+    use_max_completion_tokens: bool = False
+    # When set, matrix_runner uses this as the victim completion cap instead of
+    # its global default (512). Unset rows follow HarmBench's standard cap.
+    victim_max_tokens: int | None = None
+    # Static cap stored on the registry row, used when callers don't pass
+    # ``max_tokens`` to ``build_target``. Read by the judge pipeline, which
+    # overrides it per-call via ``dataclasses.replace``.
     max_completion_tokens: int | None = None
     # Role hints — informational only, used by the report writer to label rows.
     # "frontier_closed" | "frontier_supplementary" | "open_weight_control"
@@ -72,6 +79,7 @@ MODEL_REGISTRY: list[ModelConfig] = [
         endpoint="https://api.openai.com/v1",
         api_key_env="OPENAI_API_KEY",
         model_name="gpt-5.4",
+        use_max_completion_tokens=True,
         role="frontier_closed",
     ),
     ModelConfig(
@@ -80,6 +88,10 @@ MODEL_REGISTRY: list[ModelConfig] = [
         endpoint="https://generativelanguage.googleapis.com/v1beta/openai",
         api_key_env="GEMINI_API_KEY",
         model_name="gemini-3-pro-preview",
+        # 2048 (not default 512): Gemini 3 often still truncates at 1024 with
+        # reasoning; steer thinking low so more of the budget is visible text.
+        extra_body={"reasoning_effort": "low"},
+        victim_max_tokens=2048,
         role="frontier_closed",
     ),
     ModelConfig(
@@ -96,6 +108,7 @@ MODEL_REGISTRY: list[ModelConfig] = [
         endpoint="https://api.moonshot.ai/v1",
         api_key_env="MOONSHOT_API_KEY",
         model_name="kimi-k2.5",
+        victim_max_tokens=2048,
         role="frontier_supplementary",
     ),
     # Open-weight control row for the paper's Discussion ablation.
@@ -156,15 +169,17 @@ def build_target(
             used by the judge pipeline (``score_results``) via
             ``dataclasses.replace``; registry rows keep it ``None`` so normal
             attacks are unaffected.
-        max_tokens: Optional response token cap. When set (e.g. by
-            ``matrix_runner`` for victim targets), it takes precedence over
-            ``config.max_completion_tokens`` and is sent as ``max_tokens`` (the
-            legacy field many compat providers honor). When this argument is
-            omitted and ``config.max_completion_tokens`` is set, that value is
-            forwarded as ``max_completion_tokens`` (OpenAI / o-series style).
+        max_tokens: Optional response token cap. matrix_runner.py sets this
+            on victim targets so output stays bounded; adversary targets are
+            intentionally built without a cap. When ``None``, falls back to
+            ``config.max_completion_tokens``. For most providers the cap is
+            sent as PyRIT/OpenAI ``max_tokens``. Rows with
+            ``use_max_completion_tokens`` (currently GPT-5.4) send
+            ``max_completion_tokens`` instead, because OpenAI rejects
+            ``max_tokens`` for those models.
 
     For ``provider == "anthropic"``, returns :class:`AnthropicOpenAIChatTarget`
-    (OpenAI-compatible PyRIT target for Anthropic’s compat endpoint).
+    (OpenAI-compatible PyRIT target for Anthropic's compat endpoint).
 
     Raises:
         EnvironmentError: If the required API key is missing.
@@ -184,10 +199,12 @@ def build_target(
         kwargs["temperature"] = config.temperature
     if config.extra_body is not None:
         kwargs["extra_body_parameters"] = config.extra_body
-    if max_tokens is not None:
-        kwargs["max_tokens"] = max_tokens
-    elif config.max_completion_tokens is not None:
-        kwargs["max_completion_tokens"] = config.max_completion_tokens
+    cap = max_tokens if max_tokens is not None else config.max_completion_tokens
+    if cap is not None:
+        if config.use_max_completion_tokens:
+            kwargs["max_completion_tokens"] = cap
+        else:
+            kwargs["max_tokens"] = cap
 
     if config.provider == "anthropic":
         return AnthropicOpenAIChatTarget(**kwargs)

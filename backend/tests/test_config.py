@@ -73,6 +73,32 @@ class TestBuildTarget:
         deepseek_cfg = next(c for c in MODEL_REGISTRY if c.provider == "deepseek")
         assert deepseek_cfg.temperature == 0.0
 
+    def test_gpt_5_4_uses_max_completion_tokens_kwarg(self) -> None:
+        """OpenAI gpt-5.4 rejects max_tokens; build_target must use max_completion_tokens."""
+        gpt_cfg = next(c for c in MODEL_REGISTRY if c.model_name == "gpt-5.4")
+        assert gpt_cfg.use_max_completion_tokens is True
+        env = {gpt_cfg.api_key_env: "sk-test"}
+        with patch.dict(os.environ, env, clear=False):
+            with patch("config.models.OpenAIChatTarget") as mock_tgt:
+                mock_tgt.return_value = MagicMock()
+                build_target(gpt_cfg, max_tokens=512)
+        _, kwargs = mock_tgt.call_args
+        assert kwargs.get("max_completion_tokens") == 512
+        assert kwargs.get("max_tokens") is None
+
+    def test_gemini_still_uses_max_tokens_kwarg(self) -> None:
+        gem_cfg = next(c for c in MODEL_REGISTRY if c.provider == "google")
+        assert gem_cfg.use_max_completion_tokens is False
+        assert gem_cfg.victim_max_tokens == 2048
+        env = {gem_cfg.api_key_env: "test-key"}
+        with patch.dict(os.environ, env, clear=False):
+            with patch("config.models.OpenAIChatTarget") as mock_tgt:
+                mock_tgt.return_value = MagicMock()
+                build_target(gem_cfg, max_tokens=2048)
+        _, kwargs = mock_tgt.call_args
+        assert kwargs.get("max_tokens") == 2048
+        assert kwargs.get("max_completion_tokens") is None
+
     def test_anthropic_uses_openai_compat_subclass(self) -> None:
         """Claude uses a target that maps json_object -> json_schema for the compat API."""
         from config.anthropic_openai_chat_target import AnthropicOpenAIChatTarget
