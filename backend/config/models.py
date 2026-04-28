@@ -3,7 +3,8 @@
 Centralizes model configurations so hello_world.py, matrix_runner.py, and
 validate_attacks.py share the same definitions. Every supported provider
 exposes (or can be wrapped into) an OpenAI-compatible chat/completions
-endpoint, so a single OpenAIChatTarget class works for all of them.
+endpoint, so ``OpenAIChatTarget`` works for all of them, except a small
+Anthropic-specific subclass.
 
 Anthropic's OpenAI-compatible base URL (https://api.anthropic.com/v1/) is
 used for Claude — see Anthropic's "OpenAI SDK compatibility" documentation.
@@ -17,6 +18,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pyrit.prompt_target import OpenAIChatTarget
+
+from .anthropic_openai_chat_target import AnthropicOpenAIChatTarget
 
 logger = logging.getLogger(__name__)
 
@@ -162,16 +165,21 @@ def build_target(
     the ModelConfig are forwarded only when set.
 
     Args:
-        config: Model registry row.
+        config: Model registry row. ``max_completion_tokens`` on the config is
+            used by the judge pipeline (``score_results``) via
+            ``dataclasses.replace``; registry rows keep it ``None`` so normal
+            attacks are unaffected.
         max_tokens: Optional response token cap. matrix_runner.py sets this
             on victim targets so output stays bounded; adversary targets are
             intentionally built without a cap. When ``None``, falls back to
-            ``config.max_completion_tokens`` (used by the judge pipeline,
-            which sets it via ``dataclasses.replace``). For most providers
-            the cap is sent as PyRIT/OpenAI ``max_tokens``. Rows with
+            ``config.max_completion_tokens``. For most providers the cap is
+            sent as PyRIT/OpenAI ``max_tokens``. Rows with
             ``use_max_completion_tokens`` (currently GPT-5.4) send
             ``max_completion_tokens`` instead, because OpenAI rejects
             ``max_tokens`` for those models.
+
+    For ``provider == "anthropic"``, returns :class:`AnthropicOpenAIChatTarget`
+    (OpenAI-compatible PyRIT target for Anthropic's compat endpoint).
 
     Raises:
         EnvironmentError: If the required API key is missing.
@@ -198,4 +206,6 @@ def build_target(
         else:
             kwargs["max_tokens"] = cap
 
+    if config.provider == "anthropic":
+        return AnthropicOpenAIChatTarget(**kwargs)
     return OpenAIChatTarget(**kwargs)

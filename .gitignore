@@ -17,8 +17,12 @@ env/
 
 # Results & data (local experiment artifacts)
 results/
+eval_results/
 *.db
 *.duckdb
+
+# Bio-misuse prompt datasets — kept out of public main; tracked on feature branches only
+backend/prompts/
 
 # Local scratch space (review agent intermediates, working notes)
 .scratch/
@@ -39,3 +43,5 @@ Thumbs.db
 # Logs
 *.log
 .cursor/
+results/
+backend/prompts/
