@@ -4,17 +4,18 @@ Orchestration layer for testing bio-misuse safeguards across frontier AI models.
 
 ## Repository Layout
 
-- `backend/` — Python harness (models, attacks, prompts, runners, tests)
+- `backend/` — Python harness (models, attacks, prompts, runners, judge, tests)
 - `frontend/` — metrics dashboard UI (React + Vite + TypeScript)
+- `matrix_runner.py` (root) — Crescendo-debug entry point (uses `backend/crescendo_debug.py`)
 - root docs/config — project docs, env templates, license
 
 ## Test Matrix
 
-| Dimension          | Values                                                                                 |
-| ------------------ | -------------------------------------------------------------------------------------- |
-| **Models**         | GPT-5.4, Claude Sonnet 4.6, Gemini 3 Pro, DeepSeek V4 Flash, Kimi 2.5                  |
-| **Attack Methods** | Direct Request, PAIR, Crescendo, Base64 Encoding                                       |
-| **Categories**     | synthesis_evasion, lab_automation_uplift, dual_use_protocol, acquisition_kyc, virology |
+| Dimension          | Values                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| **Models**         | DeepSeek V4 Flash, Claude Sonnet 4.6, GPT-5.4, Gemini 3 Pro, Grok 4, Kimi K2.5, Llama-3.3 70B (control)      |
+| **Attack Methods** | Direct Request, Base64 Encoding, PAIR, Crescendo                                                             |
+| **Categories**     | synthesis_evasion, lab_automation_uplift, dual_use_protocol, acquisition_kyc, virology                       |
 
 ## Quick Start (Backend)
 
@@ -33,7 +34,7 @@ pip install -r ../requirements.txt
 cp ../.env.example ../.env
 ```
 
-Edit `../.env` and add your API keys. The runner skips models whose keys are missing, so at least one key is enough to run.
+Edit `../.env` and add your API keys. Runners skip models whose keys are missing, so at least one key is enough to run.
 
 ### 3. Run Hello World
 
@@ -56,6 +57,30 @@ cd backend
 python matrix_runner.py
 ```
 
+Re-running the same command resumes from where it left off — cells already on disk under `--output-root` (default `../results`) are skipped.
+
+### 6. Score Results
+
+```bash
+cd backend
+python score_results.py            # scores everything under ../results -> ../eval_results
+python print_eval_summary.py       # prints per-model / per-method counts by status
+```
+
+`score_results.py` runs the bio-aware judge in `backend/judge.py` against each cell from a matrix run. It does **not** use PyRIT — it calls the judge directly via `litellm`.
+
+## Crescendo Debug Mode
+
+Multi-turn Crescendo runs with full transcript logging and resume support live in the **root-level** `matrix_runner.py`:
+
+```bash
+python matrix_runner.py --crescendo-debug --crescendo-debug-full \
+  --crescendo-kimi-attacks-anthropic \
+  --prompt-file prompts/prompts_long.json
+```
+
+See `CLAUDE.md` for the full flag list and the resume-from-JSONL pattern.
+
 ## Frontend (Metrics UI)
 
 ```bash
@@ -69,13 +94,23 @@ npm run dev
 ```text
 backend/config/models.py      Model registry & target factory
 backend/attacks.py            Attack method factories
-backend/prompts/              Prompt datasets
-backend/matrix_runner.py      Full experiment runner
+backend/prompts/              Prompt datasets (gitignored — feature branches only)
+backend/matrix_runner.py      Standard matrix runner (resume + per-model token caps)
 backend/validate_attacks.py   Per-attack smoke runner
+backend/judge.py              Bio-aware LLM judge
+backend/score_results.py      Eval orchestrator over matrix-runner JSONL
+backend/print_eval_summary.py Eval-results status counter
+backend/crescendo_debug.py    Crescendo-debug helpers
 backend/tests/                Backend test suite
+matrix_runner.py              Crescendo-debug entry point (root)
+prompts/mock_prompts.json     Public placeholder dataset
 frontend/src/                 Metrics dashboard components
 ```
 
-## Scoring (Phase 2)
+## Prompts
 
-StrongREJECT scoring integration points are marked with `# HOOK: StrongREJECT scoring` comments in `backend/attacks.py` and `backend/matrix_runner.py`.
+`prompts/mock_prompts.json` (root) is a public placeholder dataset. The real bio-misuse prompts (`backend/prompts/`) are **gitignored on `main`** and live on feature branches only — see the `.gitignore` rule and `CLAUDE.md` for the schema.
+
+## Scoring
+
+Results are scored with a bio-aware judge (`backend/judge.py`) calibrated for the five categories above. Run the matrix first, then `python score_results.py` to produce per-cell judge outputs. The legacy `# HOOK: StrongREJECT scoring` markers in `backend/attacks.py` mark where the placeholder `SelfAskTrueFalseScorer` is wired into PAIR / Crescendo at attack-time; the post-hoc judge in `score_results.py` is the canonical scoring path.
