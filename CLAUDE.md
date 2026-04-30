@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## What to read vs avoid (agents)
+
+- **Prompts.** When inspecting prompt structure or examples, use **`prompts/mock_prompts.json`** only. Do not open, search, or summarize other prompt dataset files (e.g. paths under `backend/prompts/`) unless a human explicitly points you at a specific path for a local run.
+- **Red-team JSONL results.** When you need the shape of runner output, use **`results_example/`** only. It follows the same directory layout as live outputs under **`results/`** (see below). Do **not** read, glob, or index **`results/`** — it is gitignored and may contain real jailbreak transcripts and sensitive model responses.
+- **Victim model folder: production vs example.** Live matrix output lives under **`results/<victim_model_slug>/...`**. That segment is **not** free-form: in this project it is exactly one of **`claude_sonnet_4_6`**, **`deepseek_v4_flash`**, **`gemini_3_pro`**, **`gpt_5_4`**, or **`kimi_k2_5`** (same spelling and underscores as in the model registry / on-disk trees — do not substitute variants like `gpt-5.4` or `Claude_Sonnet`). **`example_victim`** is **only** for committed fixtures under **`results_example/`** so examples are never confused with a real model’s run directory. Do **not** rename `results_example/`’s folder to one of the five production slugs unless a maintainer explicitly chooses to mirror a real path (the default is **`example_victim`**).
+- **Synthetic example folder (exact string).** Under **`results_example/`**, the canonical directory name is **`example_victim`** (all lowercase, underscore). When adding paths or docs for fixtures, keep that exact string — avoid `ExampleVictim`, `example-victim`, etc. If you add a second fixture tree, pick another **visibly fake** slug that is **not** one of the five production names above.
+
+**Layout parity:** `results_example/example_victim/<method>/` parallels `results/<one_of_five_slugs_above>/<method>/`, where `<method>` is one of `base64`, `direct`, `pair`, or `crescendo` (crescendo examples may be added later). Filenames are typically `<method>_<line_count>_<yymmdd>_prompts_short.jsonl` in `results_example/`; production runs often use `<count>_<yymmdd>_prompts_short.jsonl` without the method prefix, but the JSON object schema is the same.
+
 ## Project
 
 Hackathon harness for measuring bio-misuse safeguards across frontier AI models. Wraps Microsoft's [PyRIT](https://github.com/Azure/PyRIT) with a model registry, attack matrix, and DuckDB-backed memory. Output is a heatmap of attack success rates over the matrix `Models × Attack Methods × Categories`.
@@ -43,7 +52,7 @@ Partial JSONL from a stopped `--crescendo-debug` run is **not** lost: each line 
 **Example (Kimi attacks, Anthropic defends, long bench, append + resume from repo root):**
 
 ```bash
-python matrix_runner.py \
+python backend/matrix_runner.py \
   --crescendo-debug --crescendo-debug-full \
   --crescendo-kimi-attacks-anthropic \
   --prompt-file prompts/prompts_long.json \
@@ -76,7 +85,7 @@ Three layers, all gluing PyRIT primitives together:
 
 **4. Memory layer — PyRIT `CentralMemory`**
 
-- Both runners call `initialize_pyrit_async(memory_db_type=IN_MEMORY)`. Despite the spec calling for DuckDB persistence, `IN_MEMORY` is currently SQLite under the hood and **does not persist to disk** — switch to `DUCK_DB` (and supply a path) when results need to outlive the process. `results/` (repo root) is gitignored for the JSON outputs of `backend/validate_attacks.py`. `eval_results/` (repo root) holds judge outputs from `backend/score_results.py`.
+- Both runners call `initialize_pyrit_async(memory_db_type=IN_MEMORY)`. Despite the spec calling for DuckDB persistence, `IN_MEMORY` is currently SQLite under the hood and **does not persist to disk** — switch to `DUCK_DB` (and supply a path) when results need to outlive the process. `results/` (repo root) is gitignored for JSON outputs from `backend/validate_attacks.py`, `backend/matrix_runner.py`, and similar tools — agents should infer shape from **`results_example/`** instead. `eval_results/` (repo root) holds judge outputs from `backend/score_results.py`.
 - Conversations are retrieved via `CentralMemory.get_memory_instance().get_message_pieces(conversation_id=...)`.
 
 ## Evaluation Frameworks
@@ -113,7 +122,7 @@ Two academic frameworks inform the scoring and experimental design:
 
 ## Conventions
 
-- **Prompt datasets.** `backend/prompts/mock_prompts.json` holds 2 abstract placeholders per category. `backend/prompts/prompts_long.json` holds the full BioRT-Bench dataset (8 prompts per category, 40 total) with `prompt_id`, `prompt_text`, and `abstraction_check` fields. The five paper-aligned categories are `synthesis_evasion`, `lab_automation_uplift`, `dual_use_protocol`, `acquisition_kyc`, `virology`. `backend/tests/test_prompts.py::EXPECTED_CATEGORIES` enforces this shape — update the test if the schema changes intentionally.
+- **Prompt datasets.** For Claude / codebase exploration, use **`prompts/mock_prompts.json`** (abstract placeholders per category). Production runs often point `--prompt-file` at files under **`backend/prompts/`** (e.g. `prompts_long.json` — full BioRT-Bench schema with `prompt_id`, `prompt_text`, `abstraction_check`); that tree is commonly gitignored and should not be opened by agents unless explicitly requested. The five paper-aligned categories are `synthesis_evasion`, `lab_automation_uplift`, `dual_use_protocol`, `acquisition_kyc`, `virology`. `backend/tests/test_prompts.py::EXPECTED_CATEGORIES` enforces this shape — update the test if the schema changes intentionally.
 - **Add a model:** append a `ModelConfig` to `MODEL_REGISTRY`, add the env var to `.env.example`, and confirm `backend/tests/test_config.py::test_registry_has_at_least_five_models` still passes (it asserts `>= 5`, so adding more is free). If the provider isn't OpenAI-compatible, raise `NotImplementedError` in `build_target` so the runners can skip it.
 - **Add an attack method:** write a `_build_<name>_attack(target, adversary, objective)` function in `backend/attacks.py`, register it in `ATTACK_METHODS`. If it uses a placeholder scorer, add it to `PLACEHOLDER_SCORER_METHODS`. If it requires a separate adversary, add it to `METHODS_REQUIRING_ADVERSARY`.
 - **Async everywhere.** All PyRIT entry points are `async`; both scripts use `asyncio.run(main())`. Don't mix sync PyRIT calls into the async path.

@@ -1,0 +1,77 @@
+{
+
+	"permissions": {
+	
+	"allow": [
+	
+		"Bash(*)",
+		
+		"WebSearch",
+		
+		"WebFetch",
+		
+		"Edit",
+		
+		"Write",
+		
+		"mcp__google-calendar",
+		
+		"mcp__mcp-registry__search_mcp_registry",
+		
+		"mcp__chrome-devtools__*",
+		
+		"Glob",
+		
+		"Bash(git add:*)",
+		
+		"Bash(git commit -m ':*)",
+		
+		"mcp__github__get_me",
+		
+		"mcp__github__list_issues",
+		
+		"mcp__github__get_file_contents",
+		
+		"mcp__github__create_branch",
+		
+		"mcp__github__push_files",
+		
+		"mcp__github__create_pull_request"
+		
+	],
+	
+	"deny": [
+	
+		"Bash(rm *)",
+		
+		"Bash(del *)",
+		
+		"Bash(rmdir *)",
+		
+		"Bash(rd *)",
+		
+		"Bash(unlink *)",
+		
+		"Bash(sudo *)",
+		
+		"Bash(git push --force *)",
+		
+		"Bash(git reset --hard *)",
+		
+		"Bash(git clean *)",
+		
+		"Bash(docker rm *)",
+		
+		"Bash(DROP TABLE *)"
+	
+	],
+	
+	"ask": [
+	
+		"Bash(git push *)"
+		
+		]
+	
+	}
+
+}

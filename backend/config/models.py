@@ -74,6 +74,14 @@ MODEL_REGISTRY: list[ModelConfig] = [
         role="frontier_closed",
     ),
     ModelConfig(
+        display_name="Claude Opus 4.7",
+        provider="anthropic_opus",
+        endpoint="https://api.anthropic.com/v1/",
+        api_key_env="ANTHROPIC_API_KEY",
+        model_name="claude-opus-4-7",
+        role="frontier_closed",
+    ),
+    ModelConfig(
         display_name="GPT-5.4",
         provider="openai",
         endpoint="https://api.openai.com/v1",

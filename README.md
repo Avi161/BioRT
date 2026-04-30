@@ -6,7 +6,6 @@ Orchestration layer for testing bio-misuse safeguards across frontier AI models.
 
 - `backend/` — Python harness (models, attacks, prompts, runners, judge, tests)
 - `frontend/` — metrics dashboard UI (React + Vite + TypeScript)
-- `matrix_runner.py` (root) — Crescendo-debug entry point (uses `backend/crescendo_debug.py`)
 - root docs/config — project docs, env templates, license
 
 ## Test Matrix
@@ -71,15 +70,22 @@ python print_eval_summary.py       # prints per-model / per-method counts by sta
 
 ## Crescendo Debug Mode
 
-Multi-turn Crescendo runs with full transcript logging and resume support live in the **root-level** `matrix_runner.py`:
+Multi-turn Crescendo self-play with full transcript logging and resume support runs from the **same** `backend/matrix_runner.py` via the `--crescendo-debug` subcommand:
 
 ```bash
-python matrix_runner.py --crescendo-debug --crescendo-debug-full \
+# From repo root:
+python backend/matrix_runner.py --crescendo-debug --crescendo-debug-full \
   --crescendo-kimi-attacks-anthropic \
   --prompt-file prompts/prompts_long.json
+
+# Or from backend/:
+cd backend
+python matrix_runner.py --crescendo-debug --crescendo-debug-full \
+  --crescendo-kimi-attacks-anthropic \
+  --prompt-file ../prompts/prompts_long.json
 ```
 
-See `CLAUDE.md` for the full flag list and the resume-from-JSONL pattern.
+This is a **separate** code path from `--method crescendo` (which runs one cell of the *standard matrix*). The debug mode does full attacker-vs-defender self-play with transcript logging and writes to `results/crescendo/`. See `CLAUDE.md` for the full flag list and the resume-from-JSONL pattern.
 
 ## Frontend (Metrics UI)
 
@@ -95,14 +101,13 @@ npm run dev
 backend/config/models.py      Model registry & target factory
 backend/attacks.py            Attack method factories
 backend/prompts/              Prompt datasets (gitignored — feature branches only)
-backend/matrix_runner.py      Standard matrix runner (resume + per-model token caps)
+backend/matrix_runner.py      Matrix runner + Crescendo debug entry (one CLI, two modes)
 backend/validate_attacks.py   Per-attack smoke runner
 backend/judge.py              Bio-aware LLM judge
 backend/score_results.py      Eval orchestrator over matrix-runner JSONL
 backend/print_eval_summary.py Eval-results status counter
-backend/crescendo_debug.py    Crescendo-debug helpers
+backend/crescendo_debug.py    Crescendo-debug helpers (imported by matrix_runner.py)
 backend/tests/                Backend test suite
-matrix_runner.py              Crescendo-debug entry point (root)
 prompts/mock_prompts.json     Public placeholder dataset
 frontend/src/                 Metrics dashboard components
 ```

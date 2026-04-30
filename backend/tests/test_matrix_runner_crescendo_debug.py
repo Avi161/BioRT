@@ -11,10 +11,11 @@ from backend import crescendo_debug
 
 
 def test_default_debug_output_dir_is_single_repo_path() -> None:
-    """Crescendo JSONL is written under the repo, independent of process cwd."""
+    """Crescendo JSONL root is the repo's results/ — files land at
+    <root>/<defender_slug>/crescendo/<filename>.jsonl, mirroring the matrix tree."""
     p = Path(crescendo_debug.DEFAULT_DEBUG_OUTPUT_DIR)
     assert p.is_absolute()
-    assert p.name == "crescendo" and p.parent.name == "results"
+    assert p.name == "results"
 
 
 def test_load_completed_prompt_ids_from_jsonl() -> None:

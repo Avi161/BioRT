@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,7 +17,10 @@ from typing import Any, Protocol
 from pyrit.memory import CentralMemory
 from pyrit.setup import IN_MEMORY, initialize_pyrit_async
 
-from backend.config.models import ModelConfig, build_target, get_available_models
+try:  # CWD == repo root — prefer absolute so we don't shadow on stale root-level config/.
+    from backend.config.models import ModelConfig, build_target, get_available_models
+except ModuleNotFoundError:  # CWD == backend/ (e.g. `cd backend && python matrix_runner.py ...`).
+    from config.models import ModelConfig, build_target, get_available_models
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +28,11 @@ logger = logging.getLogger(__name__)
 def _repo_root() -> Path:
     """Return the project root (parent of ``backend/``). This file lives in ``backend/``."""
     return Path(__file__).resolve().parent.parent
+
+
+def _slug(name: str) -> str:
+    """Filesystem-safe slug for a model display name (e.g. "Claude Opus 4.7" -> "claude_opus_4_7")."""
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
 def _resolve_crescendo_output_path(output_path: str) -> Path:
@@ -223,7 +232,9 @@ DEFAULT_SHORT_BENCH_PROMPT_FILE = "backend/prompts/prompts_short.json"
 DEFAULT_DEBUG_ATTACKER_PROVIDER = "moonshot"  # Kimi K2.5.
 DEFAULT_DEBUG_DEFENDER_PROVIDER = "deepseek"
 # Anchored to repo root so CWD does not create a duplicate ``backend/results/...`` tree.
-DEFAULT_DEBUG_OUTPUT_DIR = str(_repo_root() / "results" / "crescendo")
+# Final file lands at <DEFAULT_DEBUG_OUTPUT_DIR>/<defender_slug>/crescendo/<filename>.jsonl,
+# mirroring the matrix-runner tree (results/<model_slug>/<method>/...).
+DEFAULT_DEBUG_OUTPUT_DIR = str(_repo_root() / "results")
 
 
 def load_completed_prompt_ids_from_jsonl(path: str) -> set[str]:
@@ -695,21 +706,24 @@ async def run_crescendo_debug_smoke_test(
 
     output_target = _resolve_crescendo_output_path(output_path)
     write_single_file = output_target.suffix.lower() == ".jsonl"
-    if write_single_file:
-        output_target.parent.mkdir(parents=True, exist_ok=True)
-    else:
-        output_target.mkdir(parents=True, exist_ok=True)
 
     run_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     if write_single_file:
+        # Explicit .jsonl (e.g. resume) — write to that exact path.
         batch_file = output_target
     else:
-        # One JSONL per run: all prompts (e.g. 40) for this defender+attacker go here.
-        # Re-run with --defender-provider gemini to get a separate file with the same schema.
-        batch_file = output_target / (
-            "crescendo_defender-"
-            f"{defender_config.provider}_attacker-"
-            f"{attacker_config.provider}_{_dataset_stem()}_{run_stamp}.jsonl"
+        # Directory-mode: mirror the matrix-runner tree —
+        #   <output_target>/<defender_slug>/crescendo/<filename>.jsonl
+        # so crescendo-debug results live alongside the standard per-model methods.
+        batch_file = (
+            output_target
+            / _slug(defender_config.display_name)
+            / "crescendo"
+            / (
+                "crescendo_defender-"
+                f"{defender_config.provider}_attacker-"
+                f"{attacker_config.provider}_{_dataset_stem()}_{run_stamp}.jsonl"
+            )
         )
 
     # Single artifact per run: create the file up front so the path exists before API calls.
