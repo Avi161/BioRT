@@ -20,9 +20,13 @@ USAGE — run all commands from the ``backend/`` directory
 # Full matrix (every available model, every attack, every prompt)
 python matrix_runner.py
 
-# One model (substring-matches provider OR display name)
-python matrix_runner.py --model claude
-python matrix_runner.py --model kimi
+# One model — --model is a CASE-INSENSITIVE substring filter applied to BOTH
+# provider AND display_name; every model that matches is selected. Pick a
+# substring narrow enough to land on exactly the row you want.
+python matrix_runner.py --model kimi          # only Kimi K2.5
+python matrix_runner.py --model opus          # only Claude Opus 4.7
+python matrix_runner.py --model sonnet        # only Claude Sonnet 4.6
+python matrix_runner.py --model claude        # BOTH Sonnet AND Opus (avoid)
 
 # One attack method
 python matrix_runner.py --method direct      # plain prompt
