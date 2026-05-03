@@ -114,3 +114,7 @@ frontend/src/                 Metrics dashboard components
 ## Scoring
 
 Results are scored with a bio-aware judge (`backend/judge.py`) calibrated for the five categories above. Run the matrix first, then `python score_results.py` to produce per-cell judge outputs. The legacy `# HOOK: StrongREJECT scoring` markers in `backend/attacks.py` mark where the placeholder `SelfAskTrueFalseScorer` is wired into PAIR / Crescendo at attack-time; the post-hoc judge in `score_results.py` is the canonical scoring path.
+
+
+<img width="937" height="478" alt="image" src="https://github.com/user-attachments/assets/10c3bc67-cdea-4f21-ac49-c1d884def32e" />
+
