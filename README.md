@@ -5,7 +5,6 @@ Orchestration layer for testing bio-misuse safeguards across frontier AI models.
 ## Repository Layout
 
 - `backend/` — Python harness (models, attacks, prompts, runners, judge, tests)
-- `frontend/` — metrics dashboard UI (React + Vite + TypeScript)
 - root docs/config — project docs, env templates, license
 
 ## Test Matrix
@@ -87,14 +86,6 @@ python matrix_runner.py --crescendo-debug --crescendo-debug-full \
 
 This is a **separate** code path from `--method crescendo` (which runs one cell of the *standard matrix*). The debug mode does full attacker-vs-defender self-play with transcript logging and writes to `results/crescendo/`. See `CLAUDE.md` for the full flag list and the resume-from-JSONL pattern.
 
-## Frontend (Metrics UI)
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
 ## Project Structure
 
 ```text
@@ -109,7 +100,6 @@ backend/print_eval_summary.py Eval-results status counter
 backend/crescendo_debug.py    Crescendo-debug helpers (imported by matrix_runner.py)
 backend/tests/                Backend test suite
 prompts/mock_prompts.json     Public placeholder dataset
-frontend/src/                 Metrics dashboard components
 ```
 
 ## Prompts
